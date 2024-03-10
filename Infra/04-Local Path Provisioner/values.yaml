@@ -1,0 +1,12 @@
+## For creating the StorageClass automatically:
+storageClass:
+  create: true
+  defaultClass: true
+  defaultVolumeType: hostPath
+  name: local-path
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /opt/local-path-provisioner
