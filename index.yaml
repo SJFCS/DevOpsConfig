@@ -1,0 +1,21 @@
+apiVersion: v1
+entries:
+  example:
+  - apiVersion: v2
+    appVersion: 1.16.0
+    created: "2024-03-10T09:25:50.10191896Z"
+    description: A Helm chart for Kubernetes
+    digest: 6b57d038ffcfcecc9a6cef215d125e1e3cf578ce9aeddde6808e7b6c0a3f101c
+    home: https://SJFCS.github.io/DevOpsConfig
+    maintainers:
+    - email: song.jinfeng@outlook.com
+      name: song.jinfeng
+      url: https://github.com/SJFCS
+    name: example
+    sources:
+    - https://github.com/SJFCS/DevOpsConfig/Charts/example
+    type: application
+    urls:
+    - https://github.com/SJFCS/DevOpsConfig/releases/download/example-0.2.0/example-0.2.0.tgz
+    version: 0.2.0
+generated: "2024-03-10T09:25:50.101929991Z"
