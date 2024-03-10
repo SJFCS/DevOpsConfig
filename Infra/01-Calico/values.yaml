@@ -1,0 +1,9 @@
+USER-SUPPLIED VALUES:
+installation:
+  calicoNetwork:
+    bgp: Disabled
+    ipPools:
+      - cidr: 172.16.0.0/16
+        encapsulation: VXLAN
+  cni:
+    type: Calico

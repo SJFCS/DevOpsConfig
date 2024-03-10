@@ -1,0 +1,45 @@
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+spec:
+  meshConfig:
+    defaultConfig:
+      terminationDrainDuration: 20s
+    accessLogFile: /dev/stdout
+  components:
+    pilot:
+      k8s:
+        resources:
+          requests:
+            cpu: 100m # override from default 500m
+            memory: 512Mi # ... default 2048Mi
+          limits:
+            cpu: 2000m # override from default 500m
+            memory: 8Gi # ... default 2048Mi
+        hpaSpec:
+          maxReplicas: 5  # ... default 5
+          minReplicas: 2  # ... default 1
+    ingressGateways:
+    - name: istio-ingressgateway
+      enabled: true
+      k8s:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+        hpaSpec:
+          maxReplicas: 10 # ... default 5
+          minReplicas: 3  # ... default 1
+  values:
+    global:
+      istioNamespace: istio-system
+      proxy:
+        resources:
+          requests:
+            cpu: 50m # default 100m
+            memory: 128Mi
+          limits:
+            cpu: 2000m
+            memory: 1024Mi
