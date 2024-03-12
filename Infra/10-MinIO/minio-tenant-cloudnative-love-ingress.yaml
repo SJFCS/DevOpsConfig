@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: minio-tenant-cloudnative-love.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+  name: minio-tenant-cloudnative-love
+  namespace: cloudnative-love
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: minio-tenant-cloudnative-love.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: cloudnative-love-console
+                port:
+                  number: 9443
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - minio-tenant-cloudnative-love.cloudnative.love
+      secretName: minio-tenant-cloudnative-love-server-tls
