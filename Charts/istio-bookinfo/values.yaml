@@ -25,7 +25,7 @@ productpage:
   requests:
     cpu: 300m
     memory: 512Mi
-
+        
 details:
   replicas: 3
   requests:

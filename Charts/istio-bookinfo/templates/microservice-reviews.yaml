@@ -26,7 +26,7 @@ metadata:
     app: reviews
     version: v1
 spec:
-  replicas: 1
+  replicas: {{ .Values.reviews.replicas }}
   selector:
     matchLabels:
       app: reviews
@@ -44,6 +44,10 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        resources:
+          requests:
+            cpu: {{ .Values.reviews.requests.cpu }}
+            memory: {{ .Values.reviews.requests.memory }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -53,7 +57,7 @@ metadata:
     app: reviews
     version: v2
 spec:
-  replicas: 1
+  replicas: {{ .Values.reviews.replicas }}
   selector:
     matchLabels:
       app: reviews
@@ -71,6 +75,10 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        resources:
+          requests:
+            cpu: {{ .Values.reviews.requests.cpu }}
+            memory: {{ .Values.reviews.requests.memory }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,7 +88,7 @@ metadata:
     app: reviews
     version: v3
 spec:
-  replicas: 1
+  replicas: {{ .Values.reviews.replicas }}
   selector:
     matchLabels:
       app: reviews
@@ -98,3 +106,7 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        resources:
+          requests:
+            cpu: {{ .Values.reviews.requests.cpu }}
+            memory: {{ .Values.reviews.requests.memory }}

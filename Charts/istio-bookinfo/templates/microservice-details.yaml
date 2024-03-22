@@ -26,7 +26,7 @@ metadata:
     app: details
     version: v1
 spec:
-  replicas: 1
+  replicas: {{ .Values.details.replicas }}
   selector:
     matchLabels:
       app: details
@@ -44,3 +44,8 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        resources:
+          requests:
+            cpu: {{ .Values.details.requests.cpu }}
+            memory: {{ .Values.details.requests.memory }}
+

@@ -26,7 +26,7 @@ metadata:
     app: productpage
     version: v1
 spec:
-  replicas: 1
+  replicas: {{ .Values.productpage.replicas }}
   selector:
     matchLabels:
       app: productpage
@@ -44,3 +44,7 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 9080
+        resources:
+          requests:
+            cpu: {{ .Values.productpage.requests.cpu }}
+            memory: {{ .Values.productpage.requests.memory }}
