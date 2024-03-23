@@ -3,3 +3,4 @@ pre-commit:
     gitleaks:
       run: |
         gitleaks detect --verbose --redact
+        # you can add a `gitleaks:allow` comment to that line which will instruct gitleaks to ignore that secret.
