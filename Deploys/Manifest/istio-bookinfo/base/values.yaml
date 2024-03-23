@@ -15,7 +15,7 @@ gateway:
     acme:
       enabled: true
       certManager:
-        version: certmanager.k8s.io/v1alpha1
+        version: cert-manager.io/v1
       renewBefore: 720h
       issuerName: cluster-issuer-cloudflare-letsencrypt-prod
       issuerKind: ClusterIssuer
