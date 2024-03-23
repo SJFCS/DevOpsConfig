@@ -58,3 +58,12 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: bookinfo
+  annotations:
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: bookinfo.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
