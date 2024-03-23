@@ -1,0 +1,34 @@
+USER-SUPPLIED VALUES:
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        key: cf-api-token
+        name: cloudflare-api-token-for-external-dns-secret
+  - name: DOMAIN
+    valueFrom:
+      secretKeyRef:
+        key: domain
+        name: cloudflare-api-token-for-external-dns-secret
+  - name: ZONE_ID
+    valueFrom:
+      secretKeyRef:
+        key: zone-id
+        name: cloudflare-api-token-for-external-dns-secret
+extraArgs:
+  - --domain-filter=$(DOMAIN)
+  - --zone-id-filter=$(ZONE_ID)
+  - --cloudflare-proxied
+  - --cloudflare-dns-records-per-page=5000
+  - --source=istio-gateway
+policy: sync
+provider:
+  name: cloudflare
+rbac:
+  # -- If `true`, create a `ClusterRole` & `ClusterRoleBinding` with access to the Kubernetes API.
+  create: true
+  # -- Additional rules to add to the `ClusterRole`.
+  additionalPermissions:
+    - apiGroups: ["networking.istio.io"]
+      resources: ["gateways"]
+      verbs: ["get", "watch", "list"]
