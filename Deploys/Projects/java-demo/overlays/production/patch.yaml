@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lanling-services
+spec:
+  minReadySeconds: 10
+  strategy:
+    rollingUpdate:
+      maxSurge: 30%
+      maxUnavailable: 10%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/proxyCPU: 500m
+        sidecar.istio.io/proxyMemory: 180Mi
+        sidecar.istio.io/proxyCPULimit: 2000m
+        sidecar.istio.io/proxyMemoryLimit: 1Gi
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: hpa_attr
+                operator: In
+                values:
+                - spot_backup
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+                - key: hpa_attr
+                  operator: NotIn
+                  values:
+                  - limited
+                  - spot_limited
+      hostAliases:
+      - ip: "172.22.9.187"
+        hostnames:
+        - "api.myrightone.com"
+      - ip: "10.0.6.85"
+        hostnames:
+        - "lion-es.yizhoucp.cn"
+      containers:
+      - name: lanling-services
+        env:
+          - name: spring_profiles_active
+            value: "prod"
+          - name: DEPLOY_ENV
+            value: "prod"
+          - name: spring_cloud_nacos_discovery_ip
+            value: lanling-services
+        resources:
+          limits:
+            cpu: "6"
+            memory: 16Gi
+          requests:
+            cpu: "3"
+            memory: 4Gi

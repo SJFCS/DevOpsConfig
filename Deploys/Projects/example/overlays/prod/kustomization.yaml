@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - path: deployment-prod.yaml
+  - path: service-prod.yaml
+  # Patch File for nodeAffinity
+  - path: patches/node_affinity_deployment.yaml
+    target:
+      kind: Deployment
+patchesStrategicMerge:
+  - ./patch/custom-env.yaml
+  - ./patch/replica-and-rollout-strategy.yaml
+# components:
+#   - ../../variants/prod
+#   - ../../variants/asia

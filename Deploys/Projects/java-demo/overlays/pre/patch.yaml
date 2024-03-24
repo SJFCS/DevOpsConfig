@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lanling-services
+spec:
+  replicas: 1
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: hpa_attr
+                operator: In
+                values:
+                - limited
+                - spot_limited
+                - spot_stable
+      containers:
+      - name: lanling-services
+        envFrom:
+          - configMapRef:
+              name: spring-profiles-env
+        env:
+          - name: spring_cloud_nacos_discovery_ip
+            value: lanling-services
+        #  - name: spring_profiles_active
+        #    value: pre
+        resources:
+          requests:
+            cpu: "200m"
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 16Gi

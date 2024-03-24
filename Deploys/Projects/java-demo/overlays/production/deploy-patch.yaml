@@ -1,0 +1,59 @@
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: spring_profiles_active
+    value: prod
+# hostAliases
+- op: add
+  path: /spec/template/spec/hostAliases
+  value:
+  - ip: "172.22.9.187"
+    hostnames:
+    - "api.myrightone.com"
+  - ip: "10.0.6.85"
+    hostnames:
+    - "lion-es.yizhoucp.cn"
+# rollingUpdate
+- op: replace
+  path: /spec/strategy/rollingUpdate/maxSurge
+  value: 5
+# resources
+- op: replace
+  path: /spec/template/spec/containers/0/resources/requests/cpu
+  value: "2"
+- op: replace
+  path: /spec/template/spec/containers/0/resources/requests/memory
+  value: "4Gi"
+- op: replace
+  path: /spec/template/spec/containers/0/resources/limits/cpu
+  value: "6"
+- op: replace
+  path: /spec/template/spec/containers/0/resources/limits/memory
+  value: "16Gi"
+# nodeAffinity
+- op: add
+  path: /spec/template/spec/affinity/nodeAffinity
+  value:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      preference:
+        matchExpressions:
+        - key: hpa_priority
+          operator: In
+          values:
+          - top
+    - weight: 10
+      preference:
+        matchExpressions:
+        - key: workload_type
+          operator: In
+          values:
+          - spot
+          - mid
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+          - key: hpa_priority
+            operator: NotIn
+            values:
+            - restricted

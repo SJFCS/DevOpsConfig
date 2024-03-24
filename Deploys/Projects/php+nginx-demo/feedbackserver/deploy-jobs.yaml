@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedbackserver-jobs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      deployment: feedbackserver-jobs
+  template:
+    metadata:
+      labels:
+        deployment: feedbackserver-jobs
+    spec:
+      terminationGracePeriodSeconds: 20
+      tolerations:
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoExecute"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: deployment
+                  operator: In
+                  values:
+                  - feedbackserver-jobs
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - image: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/cp-public/php-fpm:8.1
+        name: php-fpm
+        workingDir: /app
+        command: ["/app/run.sh"]
+        env:
+        - name: role
+          value: "queue"
+        - name: kube_log_label
+          value: "feedbackserver-php"
+        - name: TZ
+          value: "Asia/Shanghai"
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: "50m"
+            memory: 100Mi
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      initContainers:
+      - name: init-container
+        image: registry-vpc.cn-hangzhou.aliyuncs.com/yizhoucp/feedbackserver-init:dev-08795634
+        #command: ["sh", "/usr/local/bin/init.sh"]
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      volumes:
+      - name: app
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedbackserver-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      deployment: feedbackserver-scheduler
+  template:
+    metadata:
+      labels:
+        deployment: feedbackserver-scheduler
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+      - image: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/cp-public/php-fpm:8.1
+        name: php-fpm
+        workingDir: /app
+        # command: ["/usr/local/bin/run-php.sh"]
+        command: ["/app/run.sh"]
+        env:
+        - name: kube_log_label
+          value: "feedbackserver-php"
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: role
+          value: "scheduler"
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: "50m"
+            memory: 100Mi
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      initContainers:
+      - name: init-container
+        image: registry-vpc.cn-hangzhou.aliyuncs.com/yizhoucp/feedbackserver-init:dev-08795634
+        #command: ["sh", "/usr/local/bin/init.sh"]
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      volumes:
+      - name: app
+        emptyDir: {}

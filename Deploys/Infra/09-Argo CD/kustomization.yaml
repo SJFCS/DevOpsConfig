@@ -1,0 +1,16 @@
+helmCharts:
+  - name: argo-cd
+    releaseName: argo-cd
+    repo: https://argoproj.github.io/argo-helm
+    version: 6.6.0
+    namespace: argo-cd
+    includeCRDs: false
+    valuesFile: values.yaml
+    additionalValuesFiles:
+      - plugin/kustomize-with-helm/values.yaml
+    #   - values-file-2.yaml
+# namespace: argo-cd
+# resources:
+#   - plugin/kustomize-with-helm/source-cmp.yaml
+# patches:
+#   - path: plugin/kustomize-with-helm/patch-sidecar.yaml

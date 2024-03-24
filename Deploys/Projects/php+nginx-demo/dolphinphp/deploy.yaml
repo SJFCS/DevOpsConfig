@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dolphinphp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      deployment: dolphinphp
+  template:
+    metadata:
+      labels:
+        deployment: dolphinphp
+    spec:      
+      containers:
+      - image: bitnami/php-fpm:7.3-prod-debian-10
+        name: php-fpm
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: "100m"
+            memory: 300Mi
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: dolphinphp-data
+          mountPath: /app/data/
+        - name: dolphinphp-config
+          mountPath: /app/config/
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+          name: fascgi
+      - image: registry.cn-hangzhou.aliyuncs.com/prism-admin-server/nginx:base-v1
+        name: nginx
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: nginx-conf-dolphinphp
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: docker-sites
+          mountPath: /etc/nginx/docker-sites
+        ports:
+        - containerPort: 80
+          protocol: TCP
+          name: http
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: "100m"
+            memory: 100Mi
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 10"]
+      - image: alpine:3.12
+        name: shell
+        command: ["sh", "-c", "tail -f /dev/null"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      initContainers:
+      - name: init-container
+        image: registry-vpc.cn-hangzhou.aliyuncs.com/prism/dolphinphp:latest
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: dolphinphp-data
+          mountPath: /app/data/
+        - name: dolphinphp-config
+          mountPath: /app/config/          
+      volumes:
+      - name: dolphinphp-data
+        persistentVolumeClaim:
+          claimName: dolphinphp-data
+          readOnly: false
+      - name: dolphinphp-config
+        persistentVolumeClaim:
+          claimName: dolphinphp-config
+          readOnly: false          
+      - name: app
+        emptyDir: {}
+      - name: nginx-conf-dolphinphp
+        configMap:
+          name: nginx-conf-dolphinphp
+          items:
+            - key: nginx.conf
+              path: nginx.conf
+      - name: docker-sites
+        configMap:
+          name: nginx-conf-dolphinphp
+          items:
+          - key: app.conf
+            path: app.conf

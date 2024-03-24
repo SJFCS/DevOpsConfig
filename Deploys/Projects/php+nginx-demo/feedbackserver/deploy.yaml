@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feedbackserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      deployment: feedbackserver
+  template:
+    metadata:
+      labels:
+        deployment: feedbackserver
+    spec:
+      terminationGracePeriodSeconds: 20
+      tolerations:
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoExecute"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: deployment
+                  operator: In
+                  values:
+                  - feedbackserver
+              topologyKey: "kubernetes.io/hostname"
+      containers:
+      - image: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/cp-public/php-fpm:8.1
+        #image: registry-vpc.cn-hangzhou.aliyuncs.com/prism-admin-server/php-fpm:base-v2.3
+        name: php-fpm
+        #command: ["/usr/local/bin/run-php.sh"]
+        env:
+        - name: kube_log_label
+          value: "feedbackserver-php"
+        - name: TZ
+          value: "Asia/Shanghai"
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: 20m
+            memory: 256Mi
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+          name: fascgi
+      - image: registry.cn-hangzhou.aliyuncs.com/prism-admin-server/nginx:base-v1
+        name: nginx
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        - name: nginx-conf-feedbackserver
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: docker-sites
+          mountPath: /etc/nginx/docker-sites
+        ports:
+        - containerPort: 80
+          protocol: TCP
+          name: http
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: 20m
+            memory: 100Mi
+        # startupProbe:
+        #   httpGet:
+        #     path: /api/heart
+        #     port: http
+        #   failureThreshold: 30
+        #   periodSeconds: 10
+        # livenessProbe:
+        #   failureThreshold: 6
+        #   httpGet:
+        #     path: /api/heart
+        #     port: http
+        #     scheme: HTTP
+        #   initialDelaySeconds: 120
+        #   periodSeconds: 5
+        #   successThreshold: 1
+        #   timeoutSeconds: 1
+        # readinessProbe:
+        #   failureThreshold: 5
+        #   httpGet:
+        #     path: /api/heart
+        #     port: http
+        #     scheme: HTTP
+        #   initialDelaySeconds: 10
+        #   periodSeconds: 5
+        #   successThreshold: 1
+        #   timeoutSeconds: 1
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 10"]
+      - image: alpine:3.12
+        name: shell
+        command: ["sh", "-c", "tail -f /dev/null"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      initContainers:
+      - name: init-container
+        image: registry-vpc.cn-hangzhou.aliyuncs.com/yizhoucp/feedbackserver-init:dev-08795634
+        #command: ["sh", "/usr/local/bin/init.sh"]
+        envFrom:
+          - configMapRef:
+              name: feedbackserver-env
+        volumeMounts:
+        - name: app
+          mountPath: /app
+      volumes:
+      - name: app
+        emptyDir: {}
+      - name: nginx-conf-feedbackserver
+        configMap:
+          name: nginx-conf-feedbackserver
+          items:
+            - key: nginx.conf
+              path: nginx.conf
+      - name: docker-sites
+        configMap:
+          name: nginx-conf-feedbackserver
+          items:
+          - key: app.conf
+            path: app.conf

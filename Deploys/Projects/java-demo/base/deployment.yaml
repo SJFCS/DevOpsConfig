@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lanling-services
+spec:
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  selector:
+    matchLabels:
+      deployment: lanling-services
+  strategy:
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 20%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        deployment: lanling-services
+    spec:
+      terminationGracePeriodSeconds: 20
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 20
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: deployment
+                  operator: In
+                  values:
+                  - lanling-services
+              topologyKey: "kubernetes.io/hostname"
+      tolerations:
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
+      - key: "workload_type"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoExecute"
+      containers:
+      - name: lanling-services
+        image: registry-vpc.cn-hangzhou.aliyuncs.com/yizhoucp/lanling-services:latest
+        imagePullPolicy: IfNotPresent
+        #args: ["-XX:-OmitStackTraceInFastThrow"]
+        ports:
+        - containerPort: 9050
+          name: http
+          protocol: TCP
+        env:
+        - name: TZ
+          value: Asia/Shanghai
+        - name: JAVA_TOOL_OPTIONS
+          value: " -XX:-OmitStackTraceInFastThrow "
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "100m"
+            memory: "1Gi"
+        startupProbe:
+          httpGet:
+            path: /api/heart
+            port: http
+          failureThreshold: 30
+          periodSeconds: 10
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /api/heart
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 180
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 2
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/heart
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 12
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sh", "-c", "sleep 10"]

@@ -1,0 +1,89 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: grafana.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+  name: grafana
+  namespace: prometheus
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: grafana.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: prometheus-grafana
+                port:
+                  number: 80
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - grafana.cloudnative.love
+      secretName: grafana-server-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: prometheus.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+  name: prometheus
+  namespace: prometheus
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: prometheus.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: prometheus-kube-prometheus-prometheus
+                port:
+                  number: 9090
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - prometheus.cloudnative.love
+      secretName: prometheus-server-tls
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: alertmanager.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+  name: alertmanager
+  namespace: prometheus
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: alertmanager.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: prometheus-kube-prometheus-alertmanager
+                port:
+                  number: 9093
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - alertmanager.cloudnative.love
+      secretName: alertmanager-server-tls
