@@ -16,11 +16,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-
-    strategy:
-      matrix:
-        include:
-          - context: Images/argo-plugin-sidecar
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,7 +30,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./Images/${{ matrix.context }}
-          file: ./Images/${{ matrix.context }}/Dockerfile
+          context: ./Images/argo-plugin-sidecar
+          file: ./Images/argo-plugin-sidecar/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ matrix.context }}:${{ github.sha }}
+          tags: ghcr.io/sjfcs/argo-plugin-sidecar:${{ github.sha }}
