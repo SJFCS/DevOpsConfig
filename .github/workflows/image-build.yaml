@@ -28,7 +28,7 @@ jobs:
 
       - name: Build and push argo-enable-helm-plugin image
         uses: docker/build-push-action@v5
-        if: contains(github.event.head_commit.modified, 'Images/argo-enable-helm-plugin/')
+        if: contains(github.event.head_commit.modified, 'Images/argo-enable-helm-plugin/Dockerfile')
         with:
           context: ./Images/argo-enable-helm-plugin
           file: ./Images/argo-enable-helm-plugin/Dockerfile
