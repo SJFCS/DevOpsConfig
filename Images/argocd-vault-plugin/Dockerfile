@@ -8,7 +8,6 @@ USER root
 RUN apt-get update && \
     apt-get install -y \
         curl \
-        awscli \
         gpg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
