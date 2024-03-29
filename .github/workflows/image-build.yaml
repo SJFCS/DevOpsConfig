@@ -26,18 +26,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: dorny/paths-filter@v3
+        id: changes-argo-enable-helm-plugin
+        with:
+          filters: |
+            src:
+              - 'Images/argo-enable-helm-plugin'
       - name: Build and push argo-enable-helm-plugin image
         uses: docker/build-push-action@v5
-        if: contains(github.event.head_commit.modified, 'Images/argo-enable-helm-plugin/Dockerfile')
+        # run only if some file in 'src' folder was changed
+        if: steps.changes-argo-enable-helm-plugin.outputs.src == 'true'
         with:
           context: ./Images/argo-enable-helm-plugin
           file: ./Images/argo-enable-helm-plugin/Dockerfile
           push: true
           tags: ghcr.io/sjfcs/argo-enable-helm-plugin:${{ github.sha }}
 
+      - uses: dorny/paths-filter@v3
+        id: changes-argocd-vault-plugin
+        with:
+          filters: |
+            src:
+              - 'Images/argocd-vault-plugin'
       - name: Build and push argocd-vault-plugin image
         uses: docker/build-push-action@v5
-        if: contains(github.event.head_commit.modified, 'Images/argocd-vault-plugin/')
+        # run only if some file in 'src' folder was changed
+        if: steps.changes-argocd-vault-plugin.outputs.src == 'true'
         with:
           context: ./Images/argocd-vault-plugin
           file: ./Images/argocd-vault-plugin/Dockerfile
