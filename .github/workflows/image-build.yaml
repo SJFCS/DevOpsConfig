@@ -1,5 +1,4 @@
 name: Create and publish a Docker image
-# https://docs.github.com/zh/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions
 on:
   push:
     branches:
@@ -27,11 +26,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push argo-enable-helm-plugin image
         uses: docker/build-push-action@v5
-        # if: contains(github.event.head_commit.modified, 'Images/argo-plugin-sidecar/')
+        if: contains(github.event.head_commit.modified, 'Images/argo-enable-helm-plugin/')
         with:
-          context: ./Images/argo-plugin-sidecar
-          file: ./Images/argo-plugin-sidecar/Dockerfile
+          context: ./Images/argo-enable-helm-plugin
+          file: ./Images/argo-enable-helm-plugin/Dockerfile
           push: true
-          tags: ghcr.io/sjfcs/argo-plugin-sidecar:${{ github.sha }}
+          tags: ghcr.io/sjfcs/argo-enable-helm-plugin:${{ github.sha }}
+
+      - name: Build and push argocd-vault-plugin image
+        uses: docker/build-push-action@v5
+        if: contains(github.event.head_commit.modified, 'Images/argocd-vault-plugin/')
+        with:
+          context: ./Images/argocd-vault-plugin
+          file: ./Images/argocd-vault-plugin/Dockerfile
+          push: true
+          tags: ghcr.io/sjfcs/argocd-vault-plugin:${{ github.sha }}
