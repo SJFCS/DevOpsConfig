@@ -22,3 +22,4 @@ RUN mv ${BIN} /usr/local/bin
 
 # Switch back to non-root user
 USER 999
+
