@@ -1,4 +1,4 @@
-FROM argoproj/argocd:latest
+FROM ubuntu:24.04
 
 # Switch to root for the ability to perform install
 USER root
