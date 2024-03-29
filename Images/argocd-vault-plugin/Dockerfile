@@ -1,10 +1,9 @@
-FROM registry.access.redhat.com/ubi8
+FROM argoproj/argocd:latest
 
 # Switch to root for the ability to perform install
 USER root
 
 # Install tools needed for your repo-server to retrieve & decrypt secrets, render manifests
-# (e.g. curl, awscli, gpg, sops)
 RUN apt-get update && \
     apt-get install -y \
         curl \
