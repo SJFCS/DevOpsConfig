@@ -1,0 +1,20 @@
+    appname = PrometheusAlert
+    login_user=yizhoucp
+    login_password=yizhoucp
+    httpaddr = "0.0.0.0"
+    httpport = 8080
+    runmode = dev
+    copyrequestbody = true
+    title=PrometheusAlert
+
+    silent=0
+    # logtype: file or console
+    logtype=console
+    # logpath=logs/prometheusalertcenter.log
+    prometheus_cst_time=0
+    db_driver=sqlite3
+    AlertRecord=0
+
+    #--------------------- webhook -----------------------   
+    open-feishu=1
+    fsurl=https://open.feishu.cn/open-apis/bot/v2/hook/ID

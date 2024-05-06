@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kube-state-metrics
+  namespace: prometheus
+  labels:
+    release: prometheus
+spec:
+  jobLabel: app
+  endpoints:
+    - interval: 30s
+      path: /metrics
+      port: http
+      scheme: http
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: kube-state-metrics
+  namespaceSelector:
+    matchNames:
+      - prometheus

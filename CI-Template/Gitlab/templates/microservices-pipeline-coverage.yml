@@ -1,0 +1,563 @@
+##--微服务CI--##
+# 在 templates 中定义不同场景的 CI 模版，在其中可以自己根据项目来 include 不同的 jobs 。
+
+# ------- 1.导入job模版 ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+include:
+  - local: "/jobs/coverage.yml"
+  - local: "/jobs/sonar.yml"
+  - local: "/jobs/package.yml"
+  # - local: '/jobs/build.yml'
+  # - local: '/jobs/deploy.yml'
+  #  - project: 'heguang/cicdtemplate'
+  #    ref: master
+  #    file: 'jobs/package.yml'
+# ------- 2.定义全局及stage变量 ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+variables:
+  GIT_DEPTH: 0
+  # 缓存目录和runner挂载对应
+  package_cache: /opt/package-cache
+  build_cache: /opt/build-image-cache
+  # 镜像仓库地址
+  CI_REGISTRY_URL: docker-registry-vpc.xx.com
+  # CI_REGISTRY_URL: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com
+  # AWS_CI_REGISTRY_URL: aws-nexus.xx.com
+  # 镜像拼接地址
+  # CI_REGISTRY_NAMESPACE 命名空间 在.sync-image-aws配置段
+  CI_REGISTRY_IMAGE: $CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # AWS_CI_REGISTRY_IMAGE: $AWS_CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # git 用户密码
+  CI_REGISTRY_USER: webmaster@xx.cn
+  # CI_REGISTRY_PASSWORD: Set in GitLab Project > Settings > CI/CD > Variables
+  # 各阶段镜像
+  PACKAFGE_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/maven:3.6.3-jdk-8
+  BUILD_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/executor:debug
+  DEPLOY_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/alpine:3.12-deploy
+  PACKAGE_BUILD_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/package-build:v1
+
+.chage-helm-repo: &chage-helm-repo ## 用于修改helm镜像仓库
+  - echo "chage-helm-repo"
+  - export CI_PROJECT_GIT_URL=https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/devops/helm-matrix.git
+  - export CI_PROJECT_GIT_DIR=helm-matrix/deploy
+.sync-image-aws: &sync-image-aws ## 用于同步到海外镜像仓库
+  - echo "sync-image-aws"
+  # 更改镜像命名空间
+  # 原有 cp-matrix 全量同步量大时容易阻塞，现在分开国内：matrix-cn、海外同步：matrix-world
+  - export CI_REGISTRY_NAMESPACE=matrix-cn
+  - if [ $CI_COMMIT_BRANCH == dev-branch-04 ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  - if [ $CI_COMMIT_BRANCH == test-branch-04 ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  - if [ $CI_COMMIT_BRANCH == release ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  # 更新全局变量：镜像仓库地址
+  - export CI_REGISTRY_IMAGE=$CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # - export AWS_CI_REGISTRY_IMAGE=$AWS_CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  - echo "镜像仓库命名空间=$CI_REGISTRY_NAMESPACE 国内镜像仓库地址=$CI_REGISTRY_IMAGE"
+# ------- 3.配置运行stage ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+stages:
+  # 构建、打包、扫描、测试 并行触发
+  - coverage-package-build
+  - deploy
+  - cd-sync
+  # 部署动态环境
+  - deploy-de
+  - update-base-env
+# ------- 4.复用命令 ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+.deploy-init: &deploy-init ## git初始化
+  - echo "deploy-init"
+  - git config --global user.email "gitlab@gitlab.com"
+  - git config --global user.name "GitLab CI/CD"
+  - git config --global http.sslVerify false
+  # 定义变量
+  - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+  - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+
+.deploy-helm: &deploy-helm
+  - echo $CI_PROJECT_GIT_URL
+  - git clone $CI_PROJECT_GIT_URL
+  - basepath=$PWD
+  ##国内dev/test
+  - echo $CI_PROJECT_GIT_DIR/$CI_ENV
+  - cd $basepath/$CI_PROJECT_GIT_DIR/$CI_ENV
+  #   sed -i "s/^  tag:.*/  tag: $CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA/g"
+  #   sed -i "s/^  repository:.*/  repository: $CI_REGISTRY_IMAGE/g" ${CI_PROJECT_NAME}.yaml
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  ##海外dev
+  - |
+    if [ "$CI_COMMIT_BRANCH" == "dev-branch-04" ] ; then 
+    export AWS_CI_ENV="aws-dev-01"
+
+    cd $basepath/$CI_PROJECT_GIT_DIR/$AWS_CI_ENV
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+    pwd && cat ${CI_PROJECT_NAME}.yaml
+
+    else    
+      echo "skip deploy aws dev";
+    fi
+  ##海外test
+  - |
+    if [ "$CI_COMMIT_BRANCH" == "test-branch-04" ] ; then 
+    export AWS_CI_ENV="aws-test-01"
+
+    cd $basepath/$CI_PROJECT_GIT_DIR/$AWS_CI_ENV
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+    pwd && cat ${CI_PROJECT_NAME}.yaml
+
+    else    
+      echo "skip deploy aws test";
+    fi
+
+  # 避免git提交冲突
+  - |
+    cd $basepath/$CI_PROJECT_GIT_DIR
+    if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+
+.deploy-release-helm: &deploy-release-helm
+  - echo $CI_PROJECT_GIT_URL
+  - git clone $CI_PROJECT_GIT_URL
+  - basepath=$PWD
+  ##国内pre
+  - echo $CI_PROJECT_GIT_DIR/pre
+  - cd $basepath/$CI_PROJECT_GIT_DIR/pre
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  ##国内prod
+  - echo $CI_PROJECT_GIT_DIR/production
+  - cd $basepath/$CI_PROJECT_GIT_DIR/production
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  # ##国内canary
+  #     - echo $CI_PROJECT_GIT_DIR/canary
+  #     - cd $basepath/$CI_PROJECT_GIT_DIR/canary
+  #     - |
+  #       sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+  #               -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+  #               ${CI_PROJECT_NAME}.yaml
+  #     - pwd && cat ${CI_PROJECT_NAME}.yaml
+  ##国外pre
+  - echo $CI_PROJECT_GIT_DIR/aws-pre
+  - cd $basepath/$CI_PROJECT_GIT_DIR/aws-pre
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  ##国外prod
+  - echo $CI_PROJECT_GIT_DIR/aws-production
+  - cd $basepath/$CI_PROJECT_GIT_DIR/aws-production
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  # 避免git提交冲突
+  - |
+    cd $basepath/$CI_PROJECT_GIT_DIR
+    if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+
+.deploy: &deploy
+  - git clone $CI_PROJECT_GIT_URL
+  - basepath=$PWD
+  ##国内dev/test
+  - cd $basepath/$CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+  # $CI_ENV 来自 .deploy-init 中 CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  ##海外dev
+  - |
+    if [ "$CI_COMMIT_BRANCH" == "dev-branch-04" ] ; then 
+    export AWS_CI_ENV="aws-dev-01"
+
+    cd $basepath/$CI_PROJECT_GIT_DIR/overlays/$AWS_CI_ENV
+    echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+    kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    pwd && cat kustomization.yaml
+
+    else    
+      echo "skip deploy aws dev";
+    fi
+  ##海外test
+  - |
+    if [ "$CI_COMMIT_BRANCH" == "test-branch-04" ] ; then 
+    export AWS_CI_ENV="aws-test-01"
+
+    cd $basepath/$CI_PROJECT_GIT_DIR/overlays/$AWS_CI_ENV
+    echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+    kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    pwd && cat kustomization.yaml
+
+    else    
+      echo "skip deploy aws test";
+    fi
+
+  # 避免git提交冲突
+  - |
+    cd $basepath/$CI_PROJECT_GIT_DIR
+    if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+
+.deploy-de: &deploy-de
+  ## 部署dev/test
+  # 修改目录变量
+  - export CI_PROJECT_GIT_URL="https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/devops/deploy-config-de.git"
+  - export CI_PROJECT_GIT_DIR="deploy-config-de/$CI_PROJECT_NAME"
+  - git clone $CI_PROJECT_GIT_URL
+  - cd $CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+  # $CI_ENV 来自 .deploy-init 中 CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  # 避免git提交冲突
+  - if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+.deploy-release-cn-world: &deploy-release-cn-world
+  - basepath=$PWD
+  ## 部署pre/prod
+  - git clone $CI_PROJECT_GIT_URL
+  # pre
+  - cd $basepath/$CI_PROJECT_GIT_DIR/overlays/pre
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  # prod
+  - cd $basepath/$CI_PROJECT_GIT_DIR/overlays/production
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  # aws-pre
+  - cd $basepath/$CI_PROJECT_GIT_DIR/overlays/aws-pre
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  # aws-prod
+  - cd $basepath/$CI_PROJECT_GIT_DIR/overlays/aws-production
+  - echo "kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  - pwd && cat kustomization.yaml
+  # 避免git提交冲突
+  - |
+    cd $basepath/$CI_PROJECT_GIT_DIR
+    if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+.argo-auto-sync: &argo-auto-sync ## 自动同步argo
+  - argocd app sync ${CI_PROJECT_NAME}"-$CI_ENV"
+  - argocd app wait ${CI_PROJECT_NAME}"-$CI_ENV" --health --timeout 150
+  # - |
+  #   if [ "$CI_COMMIT_BRANCH" == "dev-branch-04" ] ; then
+  #   export ARGOCD_SERVER="cd-aws.xx.com"
+  #   export ARGOCD_AUTH_TOKEN=$ARGOCD_AWSDEV_JWT
+  #   argocd app get ${CI_PROJECT_NAME}-aws-dev-01 --refresh
+  #   else
+  #     echo "skip sync aws dev";
+  #   fi
+
+# CI具体内容 ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+# 覆盖率
+coverage:
+  stage: coverage-package-build
+  tags:
+    - gitlab-runner
+  extends: .coverage
+# 质量扫描
+sonarqube:
+  stage: coverage-package-build
+  extends: .sonarqube-java
+# 编译
+coverage-package-build:
+  stage: coverage-package-build
+  tags:
+    - gitlab-runner
+  image: ${PACKAGE_BUILD_IMAGE}
+  extends: .mvn-package-build
+  only:
+    refs:
+      - master
+      - release
+      - /^dev-branch-[0-6]{1,2}/
+      - /^test-branch-[0-6]{1,2}/
+      # - DD-dev
+      # - DT-test
+      # - /^DD-.*/
+      # - /^DT-.*/
+      - feature-base
+      - /^feature-.*/
+      - /^build-test-.*/
+      #- /^feature-[0-9.-]{6,8}$/
+      #- /^dev-[0-9]{1,2}/
+##国内dev/test
+deploy:
+  stage: deploy
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_DEV_JWT
+  before_script:
+    - *deploy-init
+  script:
+    - *sync-image-aws
+    - *deploy
+  only:
+    refs:
+      - /^dev-branch-[0-6]{1,2}/
+      - /^test-branch-[0-6]{1,2}/
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+#国内外release
+deploy-release:
+  stage: deploy
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_PRE_JWT
+  before_script:
+    - *deploy-init
+  script:
+    - *sync-image-aws
+    - *deploy-release-cn-world
+  only:
+    refs:
+      - release
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+deploy-helm:
+  stage: deploy
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_DEV_JWT
+  before_script:
+    - *deploy-init
+  script:
+    - *sync-image-aws
+    - *chage-helm-repo
+    - *deploy-helm
+  only:
+    refs:
+      - /^dev-branch-[0-6]{1,2}/
+      - /^test-branch-[0-6]{1,2}/
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+### 由于kustmize和helm共存 所以同步阶段独立出来，这样就不用下面两阶段就可以合并
+### 后期helm替代kustmize后可启用下面这段 去掉同步阶段 节省构建时间
+# deploy-dev-helm:
+#   stage: deploy
+#   image: ${DEPLOY_IMAGE}
+#   variables:
+#     ARGOCD_SERVER: cd.xx.cn
+#     ARGOCD_AUTH_TOKEN: $ARGOCD_DEV_JWT
+#   before_script:
+#     - *deploy-init
+#   script:
+#     - *sync-image-aws
+#     - *chage-helm-repo
+#     - *deploy-helm
+#     # - *argo-auto-sync
+#   only:
+#     refs:
+#       - /^dev-branch-[0-6]{1,2}/
+#   retry:
+#     max: 1
+#     when:
+#       - script_failure
+
+# deploy-test-helm:
+#   stage: deploy
+#   image: ${DEPLOY_IMAGE}
+#   variables:
+#     ARGOCD_SERVER: cd.xx.cn
+#     ARGOCD_AUTH_TOKEN: $ARGOCD_QA_JWT
+#   before_script:
+#     - *deploy-init
+#   script:
+#     - *sync-image-aws
+#     - *chage-helm-repo
+#     - *deploy-helm
+#   only:
+#     refs:
+#       - /^test-branch-[0-6]{1,2}/
+#   retry:
+#     max: 1
+#     when:
+#       - script_failure
+
+deploy-release-helm:
+  stage: deploy
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_QA_JWT
+  before_script:
+    - *deploy-init
+  script:
+    - *sync-image-aws
+    - *chage-helm-repo
+    - *deploy-release-helm
+  only:
+    refs:
+      - release
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+aws-cd-sync:
+  stage: cd-sync
+  allow_failure: true
+  timeout: 30 seconds
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd-aws.xx.com
+    ARGOCD_AUTH_TOKEN: $ARGOCD_AWSDEV_JWT
+  script:
+    - argocd app get ${CI_PROJECT_NAME}-aws-dev-01 --refresh
+  only:
+    refs:
+      - dev-branch-04
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+cd-sync:
+  stage: cd-sync
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_DEV_JWT
+  before_script:
+    - *deploy-init
+  script:
+    - *argo-auto-sync
+  only:
+    refs:
+      - /^dev-branch-[0-6]{1,2}/
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+# 动态环境=============================================================================================================================================================
+update-base-env:
+  # 自动更新、自动发布动态环境的dev/test基础环境
+  # 当master更新后 重建 feature-base 分支，触发基础环境更新
+  # （现在是从release，发布平台上线改为master，同时需要改脚本里面的参数）
+  stage: update-base-env
+  image: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/jq:v1
+  script:
+    - echo "master update-feature-base $CI_PROJECT_NAME  master_合并到_DE-release  DE-release_合并到_feature-base"
+    - echo $CI_PROJECT_NAME
+    - 'curl -X POST -F token=b1f80d05638f523acd8bfca0fe6bc9 -F "ref=master" -F "variables[action]=add" -F "variables[api_env]=dev,test" -F "variables[branch_name]=feature-base"  -F "variables[api_proj]=$CI_PROJECT_NAME" -F "variables[ARMS]=on" https://git.xx.cn/api/v4/projects/579/trigger/pipeline'
+  only:
+    refs:
+      - release
+      # - master
+      # - DE-release
+  retry:
+    max: 2
+    when:
+      - script_failure
+deploy-dev-feature:
+  stage: deploy-de
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYjlhZDQ5OC1hNDVhLTQzODctYWViNi03N2I3MzEzODI2YmUiLCJpYXQiOjE2NDE4MjA0NjgsImlzcyI6ImFyZ29jZCIsIm5iZiI6MTY0MTgyMDQ2OCwic3ViIjoicHJvajptYXRyaXgtZGV2LWRlOmdpdGxhYi1jaSJ9.hlHrn7v7m2Hpqgy0uAZI5_Po4KhCJLItYKDv7mTMxrI
+  before_script:
+    - *deploy-init
+  script:
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/feature/dev/')
+    - if [ $CI_COMMIT_BRANCH == "feature-base" ]; then export CI_ENV=dev ; fi
+    - echo CI_ENV:$CI_ENV
+    #改镜像命名空间
+    - *sync-image-aws
+    - *deploy-de
+    - *argo-auto-sync
+  only:
+    refs:
+      - feature-base
+      - /^feature-.*/
+  retry:
+    max: 1
+    when:
+      - script_failure
+# test默认不自动同步
+deploy-and-refresh-test-feature:
+  stage: deploy-de
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5OTJmYzZmNC0yYmVkLTQ2NWYtYTIxYS0zMWEwM2IxNzIzZjQiLCJpYXQiOjE2NDE4ODIzMjAsImlzcyI6ImFyZ29jZCIsIm5iZiI6MTY0MTg4MjMyMCwic3ViIjoicHJvajptYXRyaXgtdGVzdC1kZTpnaXRsYWItY2kifQ.o7dHZ2WeoPifcDXLfSw4G5658lxLusRp0agtFi6dQYM
+  before_script:
+    - *deploy-init
+  script:
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/feature/test/')
+    - if [ $CI_COMMIT_BRANCH == "feature-base" ]; then export CI_ENV=test ; fi
+    - echo CI_ENV:$CI_ENV
+    #改镜像命名空间
+    - *sync-image-aws
+    - *deploy-de
+    - argocd app get ${CI_PROJECT_NAME}-$CI_ENV --refresh
+  only:
+    refs:
+      - /^feature-.*/
+  retry:
+    max: 1
+    when:
+      - script_failure
+# dev默认自动同步，base的test也要自动同步
+sync-test-feature:
+  stage: deploy-de
+  image: ${DEPLOY_IMAGE}
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5OTJmYzZmNC0yYmVkLTQ2NWYtYTIxYS0zMWEwM2IxNzIzZjQiLCJpYXQiOjE2NDE4ODIzMjAsImlzcyI6ImFyZ29jZCIsIm5iZiI6MTY0MTg4MjMyMCwic3ViIjoicHJvajptYXRyaXgtdGVzdC1kZTpnaXRsYWItY2kifQ.o7dHZ2WeoPifcDXLfSw4G5658lxLusRp0agtFi6dQYM
+  before_script:
+    - *deploy-init
+  script:
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/feature/test/')
+    - if [ $CI_COMMIT_BRANCH == "feature-base" ]; then export CI_ENV=test ; fi
+    - echo CI_ENV:$CI_ENV
+    #改镜像命名空间
+    - *sync-image-aws
+    - *deploy-de
+    - *argo-auto-sync
+  only:
+    refs:
+      - feature-base
+  retry:
+    max: 1
+    when:
+      - script_failure

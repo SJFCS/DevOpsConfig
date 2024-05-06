@@ -1,0 +1,31 @@
+image:
+  repository: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/world/rocketmq-exporter
+  tag: "2203"
+
+podAnnotations:
+  prometheus.io/path: /metrics
+  prometheus.io/port: "5557"
+  prometheus.io/scrape: "true"
+
+extraEnvs:
+  - name: rocketmq.config.namesrvAddr
+    value: "nameserver:9876"
+  - name: rocketmq.config.rocketmqVersion
+    value: V4_8_0
+  - name: JAVA_TOOL_OPTIONS
+    value: " -Xms256m -Xmx256m "
+
+container:
+  name: exporter
+  httpPort: 5557
+service:
+  enabled: true
+  port: 80
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 50m
+    memory: 512Mi

@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: es-exporter-elasticsearch-exporter
+  namespace: elk-logging
+spec:
+  endpoints:
+    - honorLabels: true
+      interval: 10s
+      path: /metrics
+      port: http
+      scheme: http
+  jobLabel: es-exporter
+  namespaceSelector:
+    matchNames:
+      - elk-logging
+  selector:
+    matchLabels:
+      app: prometheus-elasticsearch-exporter

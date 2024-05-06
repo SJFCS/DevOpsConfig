@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elk-logging
+---
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: logging
+  namespace: elk-logging
+spec:
+  version: 8.13.2
+  volumeClaimDeletePolicy: DeleteOnScaledownOnly
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        node.store.allow_mmap: false
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data # Do not change this name unless you set up a volume mount for the data path.
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 5Gi
+            storageClassName: local-path
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: logging
+  namespace: elk-logging
+spec:
+  version: 8.13.2
+  count: 1
+  elasticsearchRef:
+    name: logging
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: logging
+  namespace: elk-logging
+spec:
+  version: 8.13.2
+  count: 1
+  elasticsearchRef:
+    name: logging
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: logging
+  namespace: elk-logging
+spec:
+  version: 8.13.2
+  count: 1
+  elasticsearchRef:
+    name: logging
+  config:
+    i18n.locale: "zh-CN"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: kibana.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+    # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+  name: logging-kibana
+  namespace: elk-logging
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: kibana.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: logging-kb-http
+                port:
+                  number: 5601
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - kibana.cloudnative.love
+      secretName: kibana-server-tls

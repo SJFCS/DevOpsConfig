@@ -1,0 +1,164 @@
+## values-loki.yaml
+
+fullnameOverride: loki
+
+rbac:
+  namespaced: true
+
+loki:
+  auth_enabled: false
+  image:
+    # registry: docker.io
+    # repository: grafana/loki
+    tag: 2.9.6
+
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 1
+
+  ## loki.config
+  commonConfig:
+    ## set to 1, otherwise more replicas are needed to connect to grafana
+    replication_factor: 1
+  storage:
+    bucketNames:
+      chunks: Your_Loki_Bucket
+      ruler: Your_Loki_Bucket
+      admin: Your_Loki_Bucket
+    type: s3
+    s3:
+      ## s3 access, AWS S3 或者兼容 S3 API 的对象存储都可以
+      endpoint: cos.ap-guangzhou.myqcloud.com
+      accessKeyId: Your_Access_Key_ID
+      secretAccessKey: Your_Secret_Access_Key
+
+  compactor:
+    working_directory: /var/loki/retention
+    shared_store: s3
+    compaction_interval: 10m
+    retention_enabled: true
+    retention_delete_delay: 2h
+    retention_delete_worker_count: 150
+
+  ingester:
+    max_transfer_retries: 0
+    # max_chunk_age: 2h    # default = 2h
+    # chunk_idle_period: 30m    # default = 30m
+    # chunk_target_size: 1572864
+    chunk_encoding: zstd
+    autoforget_unhealthy: true
+  storage_config:
+    tsdb_shipper:
+      active_index_directory: /var/loki/tsdb-index
+      cache_location: /var/loki/tsdb-cache
+      cache_ttl: 72h
+      shared_store: s3
+  schemaConfig:
+    configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: s3
+        schema: v12
+        index:
+          prefix: loki_tsdb_index_
+          period: 24h
+  limits_config:
+    ingestion_rate_strategy: local # default = "global"
+    # retention_period: 240h
+    ingestion_rate_mb: 20 # default = 4
+    ingestion_burst_size_mb: 100 # default = 6
+    per_stream_rate_limit: 6MB # default = 3MB
+    per_stream_rate_limit_burst: 50MB # default = 15MB
+    max_concurrent_tail_requests: 20
+    max_cache_freshness_per_query: 10m
+    max_query_length: 72h
+    max_line_size: 256kb
+    max_line_size_truncate: true
+    ## [max_streams_matchers_per_query: <int> | default = 1000]
+    ## [max_query_bytes_read: <int> | default = 0B]
+    shard_streams:
+      enabled: true
+      desired_rate: 2097152 #2MiB
+
+  server:
+    grpc_server_max_recv_msg_size: 32000100 # default = 4194304
+    grpc_server_max_send_msg_size: 32000100 # default = 4194304
+
+test:
+  enabled: false
+
+monitoring:
+  lokiCanary:
+    enabled: false
+  dashboards:
+    enabled: false
+  selfMonitoring:
+    enabled: false
+    grafanaAgent:
+      installOperator: false
+  serviceMonitor:
+    enabled: false
+
+#sidecar:
+#  resources:
+#    limits:
+#      cpu: 200m
+#      memory: 500Mi
+#    requests:
+#      cpu: 10m
+#      memory: 50Mi
+
+gateway:
+  replicas: 1
+  #resources:
+  #  limits:
+  #    cpu: 1
+  #    memory: 2Gi
+  #  requests:
+  #    cpu: 50m
+  #    memory: 200Mi
+  #service:
+  #  type: LoadBalancer
+
+backend:
+  replicas: 1
+  persistence:
+    size: 20Gi
+    enableStatefulSetAutoDeletePVC: false
+    #storageClass: null
+  #resources:
+  #  limits:
+  #    cpu: 2
+  #    memory: 8Gi
+  #  requests:
+  #    cpu: 100m
+  #    memory: 500Mi
+
+write:
+  replicas: 1
+  persistence:
+    size: 20Gi
+    #storageClass: null
+  #resources:
+  #  limits:
+  #    cpu: 2
+  #    memory: 8Gi
+  #  requests:
+  #    cpu: 500m
+  #    memory: 4Gi
+
+read:
+  replicas: 3
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 50m
+      memory: 100Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 15
+    targetCPUUtilizationPercentage: 90

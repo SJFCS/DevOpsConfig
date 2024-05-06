@@ -1,0 +1,24 @@
+version: '3.5'
+
+services:
+  prom-node:
+    image: prom/node-exporter:latest
+    restart: always
+    volumes:
+      - /usr/share/zoneinfo/Asia/Shanghai:/etc/localtime:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.rootfs=/rootfs'
+    ports:
+      - '9100:9100'
+  
+  cadvisor:
+    image: google/cadvisor:latest
+    restart: always
+    ports:
+    - 8080:8080
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /var/lib/docker/:/var/lib/docker:ro

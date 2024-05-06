@@ -1,0 +1,28 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/hostname: prometheus-alert-center.cloudnative.love
+    external-dns.alpha.kubernetes.io/ttl: "120"
+    kubernetes.io/tls-acme: "true"
+  name: prometheus-alert-center
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: prometheus-alert-center.cloudnative.love
+      http:
+        paths:
+          - backend:
+              service:
+                name: prometheus-alert-center
+                port:
+                  number: 8080
+            path: /
+            pathType: Prefix
+  tls:
+    - hosts:
+        - prometheus-alert-center.cloudnative.love
+      secretName: prometheus-alert-center-server-tls

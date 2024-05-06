@@ -1,0 +1,32 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: kube-prometheus-stack-kube-etcd
+    app.kubernetes.io/instance: prometheus
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    app.kubernetes.io/version: 58.2.2
+    chart: kube-prometheus-stack-58.2.2
+    heritage: Helm
+    release: prometheus
+  name: etcd-k8s
+  namespace: prometheus
+spec:
+  jobLabel: app
+  endpoints:
+    - interval: 30s
+      path: /metrics
+      port: etcd-port # 这个port对应 Service.spec.ports.name
+      scheme: https
+      tlsConfig:
+        caFile: /etc/prometheus/secrets/etcd-ssl/ca.crt #证书路径 (在prometheus pod里路径)
+        certFile: /etc/prometheus/secrets/etcd-ssl/healthcheck-client.crt
+        keyFile: /etc/prometheus/secrets/etcd-ssl/healthcheck-client.key
+        insecureSkipVerify: true # 关闭证书校验
+  selector:
+    matchLabels:
+      app: etcd-k8s # 跟scv的lables保持一致
+  namespaceSelector:
+    matchNames:
+      - kube-system # 跟svc所在namespace保持一致

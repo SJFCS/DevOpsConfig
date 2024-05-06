@@ -1,0 +1,13 @@
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: deployment
+                  operator: In
+                  values:
+                    - xxl-job-admin
+            topologyKey: "kubernetes.io/hostname"

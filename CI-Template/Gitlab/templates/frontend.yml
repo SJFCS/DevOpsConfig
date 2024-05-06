@@ -1,0 +1,296 @@
+# 在 templates 中定义不同场景的 CI 模版，在其中可以自己根据项目来 include 不同的 jobs 。
+
+# ------- 1.导入job模版 ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+variables:
+  GIT_DEPTH: 0
+  # 缓存目录和runner挂载对应
+  package_cache: /opt/package-cache
+  build_cache: /opt/build-image-cache
+  # 镜像仓库地址
+  CI_REGISTRY_URL: docker-registry-vpc.xx.com
+  # CI_REGISTRY_URL: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com
+  # AWS_CI_REGISTRY_URL: aws-nexus.xx.com
+  # 镜像拼接地址
+  # CI_REGISTRY_NAMESPACE 命名空间 在.sync-image-aws配置段
+  CI_REGISTRY_IMAGE: $CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # AWS_CI_REGISTRY_IMAGE: $AWS_CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # git 用户密码
+  CI_REGISTRY_USER: webmaster@xx.cn
+  # CI_REGISTRY_PASSWORD: Set in GitLab Project > Settings > CI/CD > Variables
+  # 各阶段镜像
+  PACKAFGE_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/node:16.3.0-alpine
+  # PACKAFGE_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/maven:3.6.3-jdk-8
+  BUILD_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/executor:debug
+  DEPLOY_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/alpine:3.12-deploy
+  PACKAGE_BUILD_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/package-build:v1
+# ------- 3.配置运行stage ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+stages:
+  - package
+  - build
+  - deploy
+  # - cd-sync
+
+# npm ##########################################################################################################################################
+.sync-image-aws: &sync-image-aws ## 用于同步到海外镜像仓库
+  - echo "sync-image-aws"
+  # 更改镜像命名空间
+  # 原有 cp-matrix 全量同步量大时容易阻塞，现在分开国内：matrix-cn、海外同步：matrix-world
+  - export CI_REGISTRY_NAMESPACE=matrix-cn
+  - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  # 更新全局变量：镜像仓库地址
+  - export CI_REGISTRY_IMAGE=$CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  - echo "镜像仓库命名空间=$CI_REGISTRY_NAMESPACE 镜像仓库地址=$CI_REGISTRY_IMAGE"
+
+# 要将作业设置为仅在作业开始时下载缓存，但在作业完成时从不上传更改，请使用cache:policy:pull.
+# 要将作业设置为仅在作业完成时上传缓存，但在作业开始时从不下载缓存，请使用cache:policy:push.
+# pull当您有许多并行执行的作业使用相同的缓存时，请使用该策略。此策略可加快作业执行并减少缓存服务器上的负载。您可以使用具有push策略的作业来构建缓存。
+## 更新依赖
+.npm-push-dependence:
+  script:
+    - npm config set registry   https://nexus-hz.xx.cn/repository/nmp-group/
+    # - npm install
+    - npm ci --cache .npm --quiet --no-progress
+  cache:
+    untracked: true
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .npm
+      # - node_modules/
+    policy: push
+## 打包
+.npm-package:
+  script:
+    - npm config set registry   https://nexus-hz.xx.cn/repository/nmp-group/
+    - npm ci --cache .npm --quiet --no-progress
+    # - npm install
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+    - if [ $CI_COMMIT_BRANCH == "master" ]; then export CI_ENV="prod" ; fi
+    - npm set cache .npm
+    - npm run build:$CI_ENV
+  cache:
+    untracked: true
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - .npm
+      # - node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 week
+
+## 构建镜像，每次更新dist，镜像层不必缓存
+.build-image-nocache:
+  image:
+    entrypoint: [""]
+  script:
+    # 不使用层缓存
+    - *sync-image-aws
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+.set-ci_env: &set-ci_env # 不含"-branch-"则为分支名
+  - export CI_ENV=$CI_COMMIT_BRANCH
+  # 含"-branch-"则替换成"-"
+  - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+  # 例外！！！ 目前kustmize海外项目pre prod不带aws-
+  - if [ $CI_COMMIT_BRANCH == "master" ]; then export CI_ENV="production" ; fi
+  - if [ $CI_COMMIT_BRANCH == "pre" ]; then export CI_ENV="pre" ; fi
+  ### 如果是海外全部加上aws-前缀
+  - echo "$ARGOCD_AUTH_TOKEN = $ARGOCD_WEBSIT_AWS"
+  - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then CI_ENV=(aws-$CI_ENV); fi
+  - echo $CI_ENV
+
+## 部署
+.frontend-deploy:
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+  script:
+    - *sync-image-aws
+    - *set-ci_env
+
+    - git clone --depth=1 $CI_PROJECT_GIT_URL
+    - cd $CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+    - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+      fi
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+## helm部署
+# https://git.xx.cn/devops/helm-cd.git
+.chage-helm-repo: &chage-helm-repo ## 用于修改helm镜像仓库
+  - echo "chage-helm-repo"
+  - export CI_PROJECT_GIT_URL=https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/devops/helm-cd.git
+  - export CI_PROJECT_GIT_DIR=helm-cd/front-end
+.deploy-helm: &deploy-helm
+  - echo $CI_PROJECT_GIT_URL
+  - git clone --depth=1 $CI_PROJECT_GIT_URL
+
+  - cd $CI_PROJECT_GIT_DIR/$CI_ENV
+  - echo $CI_REGISTRY_IMAGE
+
+  - |
+    sed -i  -e "s@^  repository:.*@  repository: ${CI_REGISTRY_IMAGE}@g" \
+            -e "s@^  tag:.*@  tag: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}@g" \
+            ${CI_PROJECT_NAME}.yaml
+  - pwd && cat ${CI_PROJECT_NAME}.yaml
+  # 避免git提交冲突
+  - |
+    cd ../
+    if [ -n "$(git status -s)" ];then
+    git commit -am "$COMMIT_MSG";
+    git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+    fi
+
+.frontend-deploy-helm:
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - *set-ci_env
+
+  script:
+    - *sync-image-aws
+    - *chage-helm-repo
+    - *deploy-helm
+    # master 禁止自动发布
+    - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then ARGOCD_SERVER=cd-aws.xx.com; fi
+    ## 海外argocd上直接后缀-pre/-prod 不带aws
+    # 不含"-branch-"则为分支名
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    # 含"-branch-"则替换成"-"
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+    ### 如果是海外
+    - echo "$ARGOCD_AUTH_TOKEN = $ARGOCD_WEBSIT_AWS"
+    - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then CI_ENV=(aws-$CI_ENV); fi
+    # 例外！！！ 目前kustmize海外项目pre prod不带aws-
+    - if [ $CI_COMMIT_BRANCH == "master" ]; then export CI_ENV="production" ; fi
+    - if [ $CI_COMMIT_BRANCH == "pre" ]; then export CI_ENV="pre" ; fi
+    - echo $CI_ENV
+
+    # ## abroad-platform项目命名不规范需要改掉
+    # - export App_Name=$CI_PROJECT_NAME
+    # - if [ "$CI_PROJECT_NAME" == "abroad-platform" ]; then export App_Name=chatie-h5; fi
+    # # - |
+    #   if [ "$CI_COMMIT_BRANCH" != "master" ] && [ "$CI_COMMIT_BRANCH" != "pre" ] ; then
+    #   argocd app get $App_Name-$CI_ENV --refresh &echo
+    #   else
+    #     echo "当前项目-分支为${CI_PROJECT_NAME}-"$CI_COMMIT_BRANCH",请手动部署ARGOCD";
+    #   fi
+  retry:
+    max: 1
+    when:
+      - script_failure
+# ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+# 打包
+package:
+  stage: package
+  image: ${PACKAFGE_IMAGE}
+  extends: .npm-package
+  only:
+    - master
+    - pre
+    - /^dev-branch-[0-6]{1,2}/
+    - /^test-branch-[0-6]{1,2}/
+# 更新依赖
+push_dependence:
+  stage: package
+  image: ${PACKAFGE_IMAGE}
+  extends: .npm-push-dependence
+  only:
+    refs:
+      - master
+      - pre
+      - /^dev-branch-[0-6]{1,2}/
+      - /^test-branch-[0-6]{1,2}/
+    changes: # 下面的文件中任一文件发生改变
+      - package-lock.json
+      - package.json
+# 构建镜像
+build:
+  stage: build
+  image: ${BUILD_IMAGE}
+  extends: .build-image-nocache
+  only:
+    - master
+    - pre
+    - /^dev-branch-[0-6]{1,2}/
+    - /^test-branch-[0-6]{1,2}/
+# 部署
+deploy:
+  image: ${DEPLOY_IMAGE}
+  stage: deploy
+  extends: .frontend-deploy
+  only:
+    - master
+    - pre
+    - /^dev-branch-[0-6]{1,2}/
+    - /^test-branch-[0-6]{1,2}/
+# 部署
+deploy-helm:
+  image: ${DEPLOY_IMAGE}
+  stage: deploy
+  extends: .frontend-deploy-helm
+  only:
+    - master
+    - pre
+    - /^dev-branch-[0-6]{1,2}/
+    - /^test-branch-[0-6]{1,2}/
+# # 同步
+# argo-aync:
+#   stage: cd-sync
+#   allow_failure: true
+#   timeout: 10 seconds
+#   variables:
+#     ARGOCD_SERVER: cd.xx.cn
+#   image: ${DEPLOY_IMAGE}
+#   script:
+# # 自动部署 argocd app sync 项目名-分支
+# # master 禁止自动发布
+#     - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then ARGOCD_SERVER=cd-aws.xx.com; fi
+
+#     ## 海外argocd上直接后缀-pre/-prod 不带aws
+#     # 不含"-branch-"则为分支名
+#     - export CI_ENV=$CI_COMMIT_BRANCH
+#     # 含"-branch-"则替换成"-"
+#     - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+#     ### 如果是海外
+#     - echo "$ARGOCD_AUTH_TOKEN = $ARGOCD_WEBSIT_AWS"
+#     - if [ $ARGOCD_AUTH_TOKEN == $ARGOCD_WEBSIT_AWS ]; then CI_ENV=(aws-$CI_ENV); fi
+#     # 例外！！！ 目前kustmize海外项目pre prod不带aws-
+#     - if [ $CI_COMMIT_BRANCH == "master" ]; then export CI_ENV="production" ; fi
+#     - if [ $CI_COMMIT_BRANCH == "pre" ]; then export CI_ENV="pre" ; fi
+#     - echo $CI_ENV
+
+#     ## abroad-platform项目命名不规范需要改掉
+#     - export App_Name=$CI_PROJECT_NAME
+#     - if [ "$CI_PROJECT_NAME" == "abroad-platform" ]; then export App_Name=chatie-h5; fi
+#     - |
+#       if [ "$CI_COMMIT_BRANCH" != "master" ]; then
+#       argocd app get $App_Name-$CI_ENV --refresh
+#       else
+#         echo "当前项目-分支为${CI_PROJECT_NAME}-"$CI_COMMIT_BRANCH",请手动部署ARGOCD";
+#       fi
+#   only:
+#     - master
+#     - pre
+#     - /^dev-branch-[0-6]{1,2}/
+#     - /^test-branch-[0-6]{1,2}/

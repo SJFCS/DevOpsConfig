@@ -1,0 +1,22 @@
+# ./argocd-vault-plugin generate ./demo.yaml
+# kubectl get secret example-secret  -n argocd -o jsonpath='{.data.sample-secret}' | base64 -d
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-secret
+spec:
+  destination:
+    name: ""
+    namespace: default
+    server: "https://kubernetes.default.svc"
+  source:
+    path: .
+    repoURL: "git@github.com:SJFCS/arogcd-vault-plugin-demo.git"
+    targetRevision: HEAD
+    plugin:
+      name: argocd-vault-plugin
+  project: default
+  syncPolicy:
+    automated: null

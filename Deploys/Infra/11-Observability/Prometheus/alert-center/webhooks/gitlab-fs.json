@@ -1,0 +1,24 @@
+{
+  "msg_type": "interactive",
+  "card": {
+    "config": {
+      "wide_screen_mode": true
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "text": {
+          "content": "**作者**: {{.commit.author.name}}\n**Ref**: {{.object_attributes.ref}}\n**Commit**: {{.commit.id}}\n**触发用户**: {{.user.name}}\n**用时**: {{.object_attributes.duration}} 秒",
+          "tag": "lark_md"
+        }
+      }
+    ],
+    "header": {
+      "template": "{{ if eq .object_attributes.status `success` }}green{{else}}orange{{end}}",
+      "title": {
+        "content": "{{.project.name}} 构建{{ if eq .object_attributes.status `success` }}成功{{else}}失败{{end}}",
+        "tag": "plain_text"
+      }
+    }
+  }
+}

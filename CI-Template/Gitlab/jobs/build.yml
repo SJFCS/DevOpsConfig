@@ -1,0 +1,45 @@
+.build-image:
+  image:
+    entrypoint: [""]
+  script:
+    # 不使用层缓存
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - echo "/kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+.build-image-local-cache-mvn:
+  image:
+    entrypoint: [""]
+  script:
+    # 将jar包移动到当前目录
+    - mv $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA/target  $CI_PROJECT_DIR/
+    - ls -al $CI_PROJECT_DIR/target
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    # 使用层缓存
+    - /kaniko/executor  --cache=true --cache-dir="$build_cache" --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 1
+    when:
+      - script_failure
+
+.build-image-local-cache-base:
+  image:
+    entrypoint: [""]
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    # 使用层缓存
+    - /kaniko/executor  --cache=true --cache-dir="$build_cache" --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - echo  $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 1
+    when:
+      - script_failure

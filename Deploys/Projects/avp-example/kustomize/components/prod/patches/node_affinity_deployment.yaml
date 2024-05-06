@@ -1,0 +1,17 @@
+# Patch File for nodeAffinity
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node_affinity_deployment
+spec:
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: <key from node labels>
+                operator: In
+                values:
+                - <value to match>

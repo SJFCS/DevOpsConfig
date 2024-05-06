@@ -1,0 +1,82 @@
+# 在 templates 中定义不同场景的 CI 模版，在其中可以自己根据项目来 include 不同的 jobs 。
+
+# ------- 1.导入job模版
+include:
+  - local: "/jobs/build.yml"
+  - local: "/jobs/deploy.yml"
+
+# ------- 2.定义全局及stage变量
+variables:
+  # 镜像仓库
+  CI_REGISTRY_URL: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com
+  # CI_REGISTRY_NAMESPACE: cp-frontend 继承具体详项目中的变量
+  CI_REGISTRY_IMAGE: $CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  #  CI_REGISTRY_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  CI_REGISTRY_USER: webmaster@xx.cn
+  # CI_REGISTRY_PASSWORD: Set in GitLab Project > Settings > CI/CD > Variables
+  # 各阶段镜像
+  PACKAFGE_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/maven:3.6.3-jdk-8
+  BUILD_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/executor:debug
+  DEPLOY_IMAGE: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/alpine:3.12-deploy
+  package_cache: /opt/package-cache
+  build_cache: /opt/build-image-cache
+#before_script: # 定义在每个job执行前先要执行的命令
+#  - $GLOBAL_BEFORE_SCRIPT # 这里是从调用该文件的.gitlab-ci.yml中传递过来的变量
+#  - echo $CI_COMMIT_BRANCH-${CI_COMMIT_TAG:-${CI_COMMIT_SHA::8}}
+#after_script: # 定义在每个job执行完后要执行的命令
+#  - $GLOBAL_AFTER_SCRIPT
+
+# ------- 3.配置运行stage
+stages:
+  - package
+  - build
+  - deploy
+
+# 构建镜像
+
+package:
+  stage: package
+  image:
+    name: registry-vpc.cn-hangzhou.aliyuncs.com/xx/composer:2.0
+  script:
+    - pwd
+    - ls -al
+    - composer config -g cache-dir "$(pwd)/.composer-cache"
+    - composer config -g repo.packagist composer https://mirrors.aliyun.com/composer/
+    - composer install
+  cache:
+    paths:
+      - .composer-cache/
+  artifacts:
+    expire_in: 30 min
+    paths:
+      - vendor/
+  only:
+    refs:
+      - dev
+      - master
+      - admin_audit_secondprocess
+      - sandbox
+      - test
+# 构建镜像
+build:
+  stage: build
+  image: ${BUILD_IMAGE}
+  extends: .build-image
+  only:
+    refs:
+      - dev
+      - master
+      - admin_audit_secondprocess
+      - sandbox
+      - test
+# 部署
+deploy:
+  image: ${DEPLOY_IMAGE}
+  stage: deploy
+  extends: .deploy
+  only:
+    - dev
+    - sandbox
+    - test
+    - master

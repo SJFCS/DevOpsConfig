@@ -1,0 +1,64 @@
+.coverage:
+  allow_failure: true
+  image:
+    name: maven:3.6.3-jdk-8
+    entrypoint: [""]
+  variables:
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C  --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+    OSS_EP: "oss-cn-hangzhou.aliyuncs.com"
+    OSS_BUCKET: "oss://coverage-report"
+    OSSUTIL_DL_URL: "http://gosspublic.alicdn.com/ossutil/1.7.7/ossutil64"
+    WEBHOOK_URL: "https://open.feishu.cn/open-apis/bot/v2/hook/ID"
+    CURL_POST: "curl -X POST -H 'Content-Type: application/json'"
+  script:
+    - array=(
+      my-services
+      )
+    - if [ "${CI_PROJECT_NAME}" != null ]; then
+      if [[ "${array[@]}"  =~ "${CI_PROJECT_NAME}" ]]; then
+      echo "${CI_PROJECT_NAME} exists";
+      elif [[ ! "${array[@]}"  =~ "${CI_PROJECT_NAME}" ]]; then
+      echo "${CI_PROJECT_NAME} not exists" && exit;
+      fi
+      else
+      echo " skip scan " && exit;
+      fi
+    - is_test_pass="1"
+    - mvn  clean test | tee /tmp/mvn-test.output || is_test_pass="0"
+    - if [ $is_test_pass -eq 1 ]; then
+      cat target/site/jacoco/index.html;
+      ls -alh target/site/jacoco/;
+      echo "wget $OSSUTIL_DL_URL -O /bin/ossutil -o /dev/null";
+      wget $OSSUTIL_DL_URL -O /bin/ossutil -o /dev/null;
+      chmod a+rx /bin/ossutil;
+      ossutil config -e $OSS_EP -i $OSS_LIB_AK_ID -k $OSS_LIB_AK_SECRET;
+      ossutil cp -rf target/site/jacoco/ ${OSS_BUCKET}/${CI_PROJECT_NAME}/ ;
+      else
+      echo "单元测试未全部通过";
+      fi
+    - result=$(tail /tmp/mvn-test.output -n 50 | grep -E -o 'Tests run:[ 0-9]+, Failures:[ 0-9]+, Errors:[ 0-9]+, Skipped:[ 0-9]+$')
+    - feishu_msg="${CI_PROJECT_NAME} 单元测试 ${result}"
+    - if [ $is_test_pass -eq 1 ]; then pct=$(cat target/site/jacoco/index.html | grep -E -i -o 'total.{100}' | grep -E -o '[0-9]{1,3}%') ; feishu_msg="${CI_PROJECT_NAME} 单元测试 ${result}, 覆盖率 ${pct}" ; fi
+    - echo '{"msg_type":"text","content":{"text":"'$feishu_msg'"}}' > /tmp/webhook_data
+    - cat /tmp/webhook_data
+    - echo "$CURL_POST" -d @/tmp/webhook_data "$WEBHOOK_URL" > /tmp/webhook.sh
+    - cat /tmp/webhook.sh && bash /tmp/webhook.sh
+    #   更改退出状态码
+    - if [ $is_test_pass -eq 1 ]; then
+      echo "单元测试通过";
+      else
+      exit 22;
+      fi
+  #  cache:
+  #    key: $CI_JOB_STAGE
+  #    paths:
+  #      - .m2/repository
+  artifacts:
+    paths:
+      - $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA/target/
+    expire_in: 5 day
+  only:
+    refs:
+      - /^test-branch-[0-6]{1,2}/
+      - test-coverage

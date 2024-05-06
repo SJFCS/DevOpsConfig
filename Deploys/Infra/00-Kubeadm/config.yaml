@@ -16,6 +16,13 @@ nodeRegistration:
   imagePullPolicy: IfNotPresent
   name: archlinux
   taints: null
+# 更改监听地址，用于 promethuse 监控
+controllerManager:
+  extraArgs:
+    address: "0.0.0.0"
+scheduler:
+  extraArgs:
+    address: "0.0.0.0"
 ---
 apiServer:
   timeoutForControlPlane: 4m0s
@@ -47,3 +54,4 @@ kind: KubeProxyConfiguration
 mode: "ipvs"
 # ipvs:
 #   strictARP: true
+

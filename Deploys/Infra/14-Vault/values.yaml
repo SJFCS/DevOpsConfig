@@ -1,0 +1,80 @@
+server:
+  dev:
+    enabled: true
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+      kubernetes.io/tls-acme: "true"
+      external-dns.alpha.kubernetes.io/hostname: vault.cloudnative.love
+      external-dns.alpha.kubernetes.io/ttl: "120" #optional
+      external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    hosts:
+      - host: vault.cloudnative.love
+    tls:
+      - secretName: vault-server-tls
+        hosts:
+          - vault.cloudnative.love
+  dataStorage:
+    enabled: true
+    # Size of the PVC created
+    size: 10Gi
+    # Location where the PVC will be mounted.
+    mountPath: "/vault/data"
+    # Name of the storage class to use.  If null it will use the
+    # configured default Storage Class.
+    storageClass: local-path
+    # Access Mode of the storage device being used for the PVC
+    accessMode: ReadWriteOnce
+
+  # Persistent Volume Claim (PVC) retention policy
+  # ref: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#persistentvolumeclaim-retention
+  # Example:
+  # persistentVolumeClaimRetentionPolicy:
+  #   whenDeleted: Retain
+  #   whenScaled: Retain
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  # This configures the Vault Statefulset to create a PVC for audit
+  # logs.  Once Vault is deployed, initialized, and unsealed, Vault must
+  # be configured to use this for audit logs.  This will be mounted to
+  # /vault/audit
+  # See https://developer.hashicorp.com/vault/docs/audit to know more
+  auditStorage:
+    enabled: false
+    # Size of the PVC created
+    size: 10Gi
+    # Location where the PVC will be mounted.
+    mountPath: "/vault/audit"
+    # Name of the storage class to use.  If null it will use the
+    # configured default Storage Class.
+    storageClass: local-path
+    # Access Mode of the storage device being used for the PVC
+    accessMode: ReadWriteOnce
+
+  # Run Vault in "HA" mode. There are no storage requirements unless the audit log
+  # persistence is required.  In HA mode Vault will configure itself to use Consul
+  # for its storage backend.  The default configuration provided will work the Consul
+  # Helm project by default.  It is possible to manually configure Vault to use a
+  # different HA backend.
+  ha:
+    enabled: false
+    replicas: 3
+# Vault UI
+ui:
+  # True if you want to create a Service entry for the Vault UI.
+  #
+  # serviceType can be used to control the type of service created. For
+  # example, setting this to "LoadBalancer" will create an external load
+  # balancer (for supported K8S installations) to access the UI.
+  enabled: true
+  publishNotReadyAddresses: true
+  # The service should only contain selectors for active Vault pod
+  activeVaultPodOnly: false
+  serviceType: "ClusterIP"
+  serviceNodePort: null
+  externalPort: 8200
+  targetPort: 8200

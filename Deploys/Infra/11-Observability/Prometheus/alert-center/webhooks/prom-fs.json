@@ -1,0 +1,24 @@
+{
+  "msg_type": "interactive",
+  "card": {
+    "config": {
+      "wide_screen_mode": true
+    },
+    "elements": [
+      {
+        "tag": "div",
+        "text": {
+          "content": "{{ range $k,$v:=.alerts }}报警名称: {{$v.labels.alertname}}\n报警内容: {{$v.annotations.description}}\n{{ end }}",
+          "tag": "lark_md"
+        }
+      }
+    ],
+    "header": {
+      "template": "{{ if eq .status `resolved` }}green{{else}}red{{end}}",
+      "title": {
+        "content": "{{ if eq .status `resolved` }}报警恢复{{else}}监控报警{{end}}",
+        "tag": "plain_text"
+      }
+    }
+  }
+}

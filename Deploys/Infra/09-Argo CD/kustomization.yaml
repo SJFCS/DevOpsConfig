@@ -7,10 +7,17 @@ helmCharts:
     includeCRDs: false
     valuesFile: values.yaml
     additionalValuesFiles:
-      - plugin/kustomize-with-helm/values.yaml
-    #   - values-file-2.yaml
-# namespace: argo-cd
-# resources:
-#   - plugin/kustomize-with-helm/source-cmp.yaml
+      - plugin/stage/values.yaml
+      # - plugin/kustomize-enable-helm-vaules-custom-image/values.yaml
+      # - plugin/argo-vault-plugin-vaules-custom-image/avp-values.yaml
+# # kustomize-enable-helm with manifest patch
+# configMapGenerator:
+#   - name: kustomize-enable-helm
+#     namespace: argo-cd
+#     files:
+#       - plugin/kustomize-enable-helm-manifest-init-containers/plugin.yaml
+
+# generatorOptions:
+#   disableNameSuffixHash: true
 # patches:
-#   - path: plugin/kustomize-with-helm/patch-sidecar.yaml
+#   - path: plugin/kustomize-enable-helm-manifest-init-containers/argocd-repo-server-deployment-patch.yaml

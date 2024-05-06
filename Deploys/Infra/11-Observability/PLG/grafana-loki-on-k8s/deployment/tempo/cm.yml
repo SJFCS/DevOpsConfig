@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo
+  labels:
+    app.kubernetes.io/name: tempo
+data:
+  tempo.yaml: |
+    target: all
+    autocomplete_filtering_enabled: true
+    multitenancy_enabled: false
+    usage_report:
+      reporting_enabled: true
+    compactor:
+      compaction:
+        block_retention: 24h0m0s
+    memberlist:
+      bind_addr:
+        - '::'
+      abort_if_cluster_join_fails: false
+    metrics_generator:
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://prometheus/api/v1/write
+            send_exemplars: true
+    distributor:
+      receivers:
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_binary:
+              endpoint: 0.0.0.0:6832
+            thrift_compact:
+              endpoint: 0.0.0.0:6831
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        zipkin: {}
+        opencensus: {}
+        kafka: {}
+    ingester: {}
+    server:
+      http_listen_port: 3100
+    storage:
+      trace:
+        backend: local
+        block:
+          # There vParquet3 is a performance gain for TraceQL queries containing duration. it will also be a prerequisite for TraceQL structural operators
+          # For full details: https://github.com/grafana/tempo/pull/2244
+          version: vParquet3
+          v2_encoding: zstd
+        local:
+          path: /var/tempo/traces
+        wal:
+          v2_encoding: snappy
+          search_encoding: snappy
+          path: /var/tempo/wal
+    querier:
+      max_concurrent_queries: 20
+      frontend_worker:
+        frontend_address: 0.0.0.0:9095
+    query_frontend: {}
+    overrides:
+      user_configurable_overrides:
+        api:
+          check_for_conflicting_runtime_overrides: true

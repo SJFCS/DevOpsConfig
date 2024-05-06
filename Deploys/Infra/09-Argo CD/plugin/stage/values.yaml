@@ -1,0 +1,152 @@
+# argocd-vault-plugin
+# argocd-vault-plugin-helm（args和inline-values）
+# argocd-vault-plugin-kustomize
+
+## Argo Configs
+configs:
+  # ConfigMap for Config Management Plugins
+  # Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/config-management-plugins/
+  cmp:
+    # -- Create the argocd-cmp-cm configmap
+    create: true
+    # -- Plugin yaml files to be added to argocd-cmp-cm
+    plugins:
+      kustomize-enable-helm:
+        generate:
+          command: ["sh", "-c"]
+          args: ["kustomize build --enable-helm"]
+      argocd-vault-plugin:
+        allowConcurrency: true
+        discover:
+          find:
+            command:
+              - sh
+              - "-c"
+              - "find . -name '*.yaml' | xargs -I {} grep \"<path\\|avp\\.kubernetes\\.io\" {} | grep ."
+        generate:
+          command:
+            - argocd-vault-plugin
+            - generate
+            - "."
+            # - "-s"
+            # - "argo-cd:vault-configuration"
+        lockRepo: false
+
+      argocd-vault-plugin-helm:
+        allowConcurrency: true
+        # Note: this command is run _before_ any Helm templating is done, therefore the logic is to check
+        # if this looks like a Helm chart
+        discover:
+          find:
+            command:
+              - sh
+              - "-c"
+              - "find . -name 'Chart.yaml' && find . -name 'values.yaml'"
+        init:
+          command: [sh, -c]
+          args: ["helm dependency build"]
+        generate:
+        generate:
+          # **IMPORTANT**: passing `${ARGOCD_ENV_helm_args}` effectively allows users to run arbitrary code in the Argo CD
+          # repo-server (or, if using a sidecar, in the plugin sidecar). Only use this when the users are completely trusted. If
+          # possible, determine which Helm arguments are needed by your users and explicitly pass only those arguments.
+
+          # This lets you pass args to the Helm invocation as described here: https://argocd-vault-plugin.readthedocs.io/en/stable/usage/#with-helm
+          # IMPORTANT: passing $helm_args effectively allows users to run arbitrary code in the Argo CD repo-server.
+          # Only use this when the users are completely trusted. If possible, determine which Helm arguments are needed by
+          # your users and explicitly pass only those arguments.
+
+          # This lets you pass a values file as a string as described here:
+          # https://argocd-vault-plugin.readthedocs.io/en/stable/usage/#with-helm
+          command: ["sh", "-c"]
+          args: ["helm template $ARGOCD_APP_NAME -n $ARGOCD_APP_NAMESPACE ${ARGOCD_ENV_HELM_ARGS} -f <(echo "$ARGOCD_ENV_HELM_VALUES") . --include-crds | argocd-vault-plugin generate -"]              
+
+      argocd-vault-plugin-kustomize:
+        allowConcurrency: true
+        # Note: this command is run _before_ anything is done, therefore the logic is to check
+        # if this looks like a Kustomize bundle
+        discover:
+          find:
+            command:
+              - find
+              - "."
+              - -name
+              - kustomization.yaml
+        generate:
+          command: ["sh", "-c"]
+          args: ["kustomize build --enable-helm . | argocd-vault-plugin generate -"]
+        lockRepo: false
+
+## Repo Server
+repoServer:
+  serviceAccount:
+    # -- Create repo server service account
+    create: true
+    # -- Repo server service account name
+    name: "argocd-repo-server" # "argocd-repo-server"
+    automountServiceAccountToken: true
+  # 将您的 repo-server service account 添加到 argocd-server 的 ClusterRoleBinding 中，以便在集群级别获取机密
+  rbac:
+    - verbs:
+        - get
+        - list
+        - watch
+      apiGroups:
+        - ""
+      resources:
+        - secrets
+        - configmaps
+  # -- Additional containers to be added to the repo server pod
+  ## Ref: https://argo-cd.readthedocs.io/en/stable/user-guide/config-management-plugins/
+  ## Note: Supports use of custom Helm templates
+  extraContainers:
+    - name: kustomize-enable-helm
+      command:
+        - "/var/run/argocd/argocd-cmp-server"
+      image: ghcr.io/sjfcs/argo-enable-helm-plugin:d8170c35b35451e446438f40a4f7ce4a2a855398
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      volumeMounts:
+        - mountPath: /var/run/argocd
+          name: var-files
+        - mountPath: /home/argocd/cmp-server/plugins
+          name: plugins
+        # Remove this volumeMount if you've chosen to bake the config file into the sidecar image.
+        - mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: kustomize-enable-helm.yaml
+          name: argocd-cmp-cm
+        # Starting with v2.4, do NOT mount the same tmp volume as the repo-server container. The filesystem separation helps
+        # mitigate path traversal attacks.
+        - mountPath: /tmp
+          name: cmp-tmp
+
+    - name: avp
+      command: [/var/run/argocd/argocd-cmp-server]
+      envFrom:
+        - secretRef:
+            name: vault-configuration
+      image: ghcr.io/sjfcs/argocd-vault-plugin:4427a9d35e88a3ab5355d77b9d352b755849611d
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      volumeMounts:
+        - mountPath: /var/run/argocd
+          name: var-files
+        - mountPath: /home/argocd/cmp-server/plugins
+          name: plugins
+        - mountPath: /tmp
+          name: tmp
+
+        # Register plugins into sidecar
+        - mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: argocd-vault-plugin.yaml
+          name: argocd-cmp-cm
+
+  # -- Additional volumes to the repo server pod
+  volumes:
+    - name: argocd-cmp-cm
+      configMap:
+        name: argocd-cmp-cm
+    - name: cmp-tmp
+      emptyDir: {}

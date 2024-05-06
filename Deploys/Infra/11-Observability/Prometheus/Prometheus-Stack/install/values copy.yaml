@@ -1,0 +1,1551 @@
+# 报警规则
+additionalPrometheusRulesMap:
+  rule-name:
+    groups:
+      - name: hostStatsAlert
+        rules:
+          # 内存
+          - alert: "Linux 内存使用率高"
+            # 内存剩余容量小于 12% 且小于 5GB
+            expr: instance:node_memory_utilisation:ratio{} *100 > 85
+              and (node_memory_MemAvailable_bytes{} / 1024 / 1024 / 1024) < 5
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }} 内存使用率高"
+              description: "{{ $labels.instance }} 内存使用率高于 85% (当前值: {{ $value }})"
+          # CPU
+          - alert: "CPU 使用率高"
+            expr: instance:node_cpu_utilisation:rate5m{} *100 > 85
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }} CPU 使用率高"
+              description: "{{ $labels.instance }} CPU 使用率高于 85% (当前值: {{ $value }})"
+          # 磁盘
+          - alert: "节点磁盘使用率高"
+            expr: 100 - (node_filesystem_free_bytes{fstype=~"xfs|ext4"} / node_filesystem_size_bytes{fstype=~"xfs|ext4"} * 100) > 85
+            for: 30m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }} 磁盘使用率高"
+              description: "{{ $labels.instance }} 磁盘使用率高于 85% (当前值: {{ $value }})"
+          - alert: "Pod 磁盘使用率高"
+            expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) *100 > 85
+            for: 30m
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.instance }} {{ $labels.persistentvolumeclaim }} 磁盘使用率高"
+              description: "{{ $labels.instance }} {{ $labels.persistentvolumeclaim }} 磁盘使用率高于 85% (当前值: {{ $value }})"
+      # Istio
+      - name: IstioHttpStatus
+        rules:
+          - alert: "500 状态码异常"
+            expr:
+              sum by (destination_service,destination_workload) (irate(istio_requests_total{destination_service=~"(gateway|cp-prod|prism-server-api).(matrix|cp-prod|prism-server).svc.cluster.local",reporter="destination",response_code=~"5[0-9]{2}"}[5m]))
+              / sum by (destination_service,destination_workload) (irate(istio_requests_total{destination_service=~"(gateway|cp-prod|prism-server-api).(matrix|cp-prod|prism-server).svc.cluster.local",reporter="destination",response_code=~".*"}[5m])) *100 > 5
+            for: 2m
+            labels:
+              severity: warn
+              team: "aws"
+            annotations:
+              summary: "状态码异常({{$labels.destination_workload}} 500 状态码占比高)"
+              description: '{{$labels.destination_workload}} 响应 500 状态码占比高于 {{ printf "%.2f" $value }}%，服务端出现严重故障'
+          - alert: "500 状态码异常"
+            expr:
+              sum(irate(istio_requests_total{destination_service=~"gateway.matrix.svc.cluster.local",reporter="destination",response_code=~"5[0-9]{2}"}[5m]))
+              / sum(irate(istio_requests_total{destination_service=~"gateway.matrix.svc.cluster.local",reporter="destination",response_code=~".*"}[5m])) * 100 > 10
+            for: 1m
+            labels:
+              severity: critical
+              #team: matrix
+              team: "aws"
+            annotations:
+              summary: "状态码异常(Gateway 500 状态码占比高)"
+              description: 'Gateway 响应 500 状态码占比高于 {{ printf "%.2f" $value }}%，服务端出现严重故障'
+          - alert: "200 状态码异常"
+            expr:
+              sum(irate(istio_requests_total{destination_service=~"gateway.matrix.svc.cluster.local",reporter="destination",response_code=~"2[0-9]{2}"}[5m]))
+              / sum(irate(istio_requests_total{destination_service=~"gateway.matrix.svc.cluster.local",reporter="destination",response_code=~".*"}[5m])) * 100 < 60
+            for: 2m
+            labels:
+              severity: warn
+              #team: matrix
+              team: "aws"
+            annotations:
+              summary: "状态码异常(Gateway 200状态码占比低)"
+              description: 'Gateway 响应 200 状态码占比低于 {{ printf "%.2f" $value }}%，服务质量出现严重抖动'
+          - alert: "200 状态码低于最低预警值"
+            # 200 状态码低于每秒 2 次
+            expr: sum(irate(istio_requests_total{destination_service=~"gateway.matrix.svc.cluster.local",reporter="destination",response_code=~"2[0-9]{2}"}[2m])) < 2
+            for: 5m
+            labels:
+              severity: warn
+              team: "aws"
+            annotations:
+              summary: "状态码异常(Gateway 200 状态码低于最低预警值)"
+              description: "Gateway 响应 200 状态码数量低于最低预警值，当前 {{ $value }}/s (出大问题了 需要紧急救援)"
+      # Flink
+      - name: Flink
+        rules:
+          - alert: "Flink 任务数变化"
+            expr: increase(flink_jobmanager_numRunningJobs{env="prod"}[3m]) != 0
+            for: 1m
+            labels:
+              severity: info
+              team: flink
+            annotations:
+              summary: "Flink 运行任务数相对3分钟前有变化"
+              description: 'Flink 运行任务数相对3分钟前增加了 {{ printf "%.0f" $value }} 个'
+          - alert: "Flink 任务异常"
+            expr: absent (flink_jobmanager_numRunningJobs{env="prod"})
+            for: 3m
+            labels:
+              severity: info
+              team: aws
+            annotations:
+              summary: "Flink 监控数据丢失"
+              description: "Flink 监控数据丢失 (监控异常或者 Flink 未正常运行)"
+      # Kafka
+      - name: Kafka
+        rules:
+          - alert: "Kafka 消息堆积提醒"
+            expr: sum by (consumergroup)(kafka_consumergroup_lag{env="prod",topic="octopus_topic3"}) > 250000
+            for: 5m
+            labels:
+              severity: info
+              #team: flink
+              team: "aws"
+            annotations:
+              summary: "Kafka 消息堆积提醒 topic: {{$labels.topic}}, consumergroup: {{$labels.consumergroup}}"
+              description: "topic: {{$labels.topic}}, consumergroup: {{$labels.consumergroup}} 消息堆积量达到 {{ $value }}"
+      # RocketMQ
+      - name: RocketMQ
+        rules:
+          - alert: "RocketMQ 消息积压"
+            expr: max(rocketmq_producer_offset) by (topic) - on(topic)  group_right  max(rocketmq_consumer_offset) by (group,topic) > 500
+            for: 5m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "RocketMQ 消息积压过多，topic: {{$labels.topic}} 消费者组: {{$labels.group}}"
+              description: "RocketMQ 消息积压过多，topic: {{$labels.topic}}, 消费者组: {{$labels.group}}, 消息积压: {{$value }} 持续 5 分钟"
+          - alert: "RocketMQ 消费延迟"
+            # rocketmq_group_get_latency_by_storetime/1000  > 10 and rate(rocketmq_group_get_latency_by_storetime[5m])
+            expr: rocketmq_group_get_latency_by_storetime > 7000
+            for: 5m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "RocketMQ 消费延迟>7000，topic: {{$labels.topic}} 消费者组: {{$labels.group}}"
+              description: "RocketMQ 消费延迟>7000，topic: {{$labels.topic}}, 消费者组: {{$labels.group}}, 消费延迟: {{$value }} 持续 5 分钟"
+          - alert: "RocketMQ 磁盘占用"
+            expr: sum(rocketmq_brokeruntime_commitlog_disk_ratio) by (brokerIP) * 100 > 85
+            for: 5m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "RocketMQ brokerIP: {{$labels.brokerIP}} 磁盘占用>85%"
+              description: "RocketMQ brokerIP: {{$labels.brokerIP}} 磁盘占用>85% 持续 5 分钟"
+          - alert: "RocketMQ tps 增长量"
+            expr: sum(rocketmq_producer_tps) by (cluster) / sum(rocketmq_producer_tps offset 1m) by (cluster) >2 and sum(rocketmq_producer_tps) by (cluster) - sum(rocketmq_producer_tps offset 1m) by (cluster) > 200
+            for: 2m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "RocketMQ tps 一分钟内增长量超过两倍"
+              description: "RocketMQ tps 一分钟内增长量超过两倍 持续 2 分钟"
+      # Pod
+      - name: podStatus
+        rules:
+          - alert: "容器状态异常"
+            expr: sum by (namespace,container,job) (increase(kube_pod_container_status_restarts_total{namespace=~".+"}[30m])) > 5
+            for: 10m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "容器 30 分钟内重启超过 5 次"
+              description: "Namespace: {{$labels.namespace}}, 容器: {{$labels.container}}, 30 分钟内重启超过 5 次"
+          - alert: "容器扩容异常"
+            expr: sum by (namespace,container,job) (increase(kube_pod_container_status_restarts_total{namespace=~".+"}[30m])) > 15
+            for: 10m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "容器扩容异常"
+              description: "Namespace: {{$labels.namespace}}, 容器: {{$labels.container}}, 30 分钟内扩容超过 15 个"
+          - alert: "容器缩容异常"
+            expr: sum by (namespace,container,job) (increase(kube_pod_container_status_restarts_total{namespace=~".+"}[30m])) < -15
+            for: 10m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "容器缩容异常"
+              description: "Namespace: {{$labels.namespace}}, 容器: {{$labels.container}}, 30 分钟内缩容超过 15 个"
+      # node
+      - name: nodeStatus
+        rules:
+          - alert: "磁盘使用>85%"
+            expr: (100 - ((node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes) ) > 85
+            for: 15m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "磁盘使用超过85%"
+              description: "instance: {{$labels.instance}}, node: {{$labels.node}}, device: {{$labels.device}},mountpoint: {{$labels.mountpoint}} 磁盘使用超过85%"
+          - alert: 主机磁盘24小时填满预测
+            expr: (node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 10 and ON (instance, device, mountpoint) predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs"}[1h], 24 * 3600) < 0 and ON (instance, device, mountpoint) node_filesystem_readonly == 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: 主机磁盘将在24小时后填满 (instance {{ $labels.instance }})
+              description: "以当前写入速率，主机磁盘将在24小时后填满\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          - alert: "node未准备就绪"
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 15m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "node未准备就绪"
+              description: "node未准备就绪: {{$labels.node}} "
+          - alert: 主机内存不足
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+            for: 5m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: 主机内存不足 (instance {{ $labels.instance }})
+              description: "主机内存不足 (< 10% left)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+      # redis
+      - name: redisStatus
+        rules:
+          - alert: "redis 内存不足"
+            expr: redis_memory_used_bytes / 16000000000 * 100 > 90
+            for: 5m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "redis 内存不足"
+              description: "redis 内存不足,当前内存占用比例 {{ $value }}"
+          - alert: "lanling redis Master缺失。"
+            expr: redis_instance_info{app_kubernetes_io_instance="exporter-redis-lanling",role="master"} == 0
+            for: 5m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "lanling redis Master缺失。"
+              description: "lanling redis Master缺失。"
+          - alert: "matrix redis Master缺失。"
+            expr: redis_instance_info{app_kubernetes_io_instance="exporter-redis-matrix",role="master"} == 0
+            for: 5m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "matrix redis Master缺失。"
+              description: "matrix redis Master缺失。"
+          - alert: "redis 拒绝链接"
+            expr: increase(redis_rejected_connections_total[1m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "redis 拒绝链接"
+              description: "redis 拒绝链接 pod: {{$labels.pod}}"
+          - alert: "redis 链接过多"
+            expr: redis_connected_clients > 8000
+            for: 5m
+            labels:
+              severity: info
+              team: "aws"
+            annotations:
+              summary: "redis 链接过多 > 8000"
+              description: "redis 链接过多 > 8000,当前 {{ $value }} pod: {{$labels.pod}}"
+      # mysql
+      - name: mysqlStatus
+        rules:
+          - alert: "mysql节点下线"
+            expr: mysql_up == 0
+            for: 1m
+            labels:
+              severity: critical
+              team: "aws"
+            annotations:
+              summary: "mysql节点下线"
+              description: "mysql节点下线,db_instance: {{$labels.db_instance}}"
+          - alert: "mysql文件打开数过多"
+            expr: mysql_global_status_innodb_num_open_files > (mysql_global_variables_open_files_limit) * 0.75
+            for: 1m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "mysql 文件打开数过多,超过文件打开数最大限制75%"
+              description: "mysql 文件打开数过多,超过文件打开数最大限制75%,db_instance: {{$labels.db_instance}}"
+          - alert: "mysql 读取缓存区超过数据包最大限制"
+            expr: mysql_global_variables_read_buffer_size > mysql_global_variables_slave_max_allowed_packet
+            for: 1m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "mysql 读取缓存区超过数据包最大限制"
+              description: "mysql 读取缓存区超过数据包最大限制 db_instance: {{$labels.db_instance}}"
+          - alert: "mysql 使用超过80%连接限制。"
+            expr: mysql_global_status_max_used_connections > mysql_global_variables_max_connections * 0.8
+            for: 1m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "mysql 使用超过80%连接限制"
+              description: "mysql 使用超过80%连接限制 当前 {{ $value }}. db_instance: {{$labels.db_instance}}"
+          - alert: "mysql 每秒慢查询过多。"
+            expr: rate(mysql_global_status_slow_queries[5m])>3
+            for: 5m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "mysql 每秒慢查询过多。"
+              description: "mysql 每秒慢查询过多。当前 {{ $value }}  db_instance: {{$labels.db_instance}}"
+      # ElasticsearchStatus
+      - name: ElasticsearchStatus
+        rules:
+          - alert: "Elasticsearch Heap 使用过高"
+            expr: (elasticsearch_jvm_memory_used_bytes{area="heap"} / elasticsearch_jvm_memory_max_bytes{area="heap"}) * 100 > 90
+            for: 2m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "Elasticsearch Heap 使用过高"
+              description: "The heap usage 使用过高 90%\n  VALUE = {{ $value }}\n  instance = {{ $labels.instance }}"
+          - alert: Elasticsearch 磁盘空间不足
+            expr: elasticsearch_filesystem_data_available_bytes / elasticsearch_filesystem_data_size_bytes * 100 < 10
+            for: 2m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: Elasticsearch 磁盘空间不足
+              description: "The 磁盘空间使用超过 90%\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          - alert: Elasticsearch集群红色状态
+            expr: elasticsearch_cluster_health_status{color="red"} == 1
+            for: 0m
+            labels:
+              severity: critical
+              team: "aws"
+            annotations:
+              summary: "Elasticsearch 集群红色状态"
+              description: "Elastic 集群红色状态 status\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          - alert: Elasticsearch 健康节点数量 < 3
+            expr: elasticsearch_cluster_health_number_of_nodes < 3
+            for: 0m
+            labels:
+              severity: critical
+              team: "aws"
+            annotations:
+              summary: "Elasticsearch 健康节点"
+              description: "缺少 Elasticsearch 健康节点\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          # Elasticsearch 有待处理的任务。集群工作缓慢。
+          - alert: Elasticsearch集群工作缓慢
+            expr: elasticsearch_cluster_health_number_of_pending_tasks > 0
+            for: 15m
+            labels:
+              severity: warning
+              team: "aws"
+            annotations:
+              summary: "Elasticsearch 有待处理的任务。集群工作缓慢。"
+              description: "Elasticsearch 有待处理的任务。集群工作缓慢。.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+  recording_rules.yml:
+    groups:
+      - name: istio_requests:sum_by_dest
+        interval: 15s
+        rules:
+          - record: job:istio_requests_total:sum_by_dest
+            expr: sum by (destination_service,destination_workload,response_code,namespace,reporter) (rate(istio_requests_total{reporter="destination"}[1m]))
+            labels:
+              metric_type: aggregation
+      - name: istio_requests
+        interval: 30s
+        rules:
+          - record: job:istio_requests_total:sum
+            expr: sum by (destination_service,destination_workload,response_code,namespace,reporter,source_workload) (rate(istio_requests_total{}[1m]))
+            labels:
+              metric_type: aggregation
+          - record: job:istio_requests_total:sum_by_dest_workload
+            expr: |
+              sum by (namespace,destination_workload,response_code,reporter)
+              (istio_requests_total)
+            labels:
+              metric_type: aggregation
+      - name: istio_request_duration_milliseconds_bucket
+        interval: 1m
+        rules:
+          - record: job:istio_request_duration_milliseconds_bucket:sum_by_dest
+            expr: sum by (destination_service,destination_workload,response_code,le,namespace,reporter) (rate(istio_request_duration_milliseconds_bucket{reporter="destination"}[1m]))
+            labels:
+              metric_type: aggregation
+          - record: job:istio_request_duration_milliseconds_bucket:sum
+            expr: sum by (destination_service,destination_workload,response_code,le,namespace,reporter,source_workload) (rate(istio_request_duration_milliseconds_bucket{}[1m]))
+            labels:
+              metric_type: aggregation
+          - record: job:istio_request_duration_milliseconds_bucket:p75_code200_dest
+            expr: |
+              histogram_quantile(0.75,
+                sum by (destination_workload,response_code,le,namespace,reporter)
+                (rate(istio_request_duration_milliseconds_bucket{
+                  reporter="destination",response_code="200"
+                }[1m]))
+              )
+            labels:
+              metric_type: aggregation
+          - record: job:istio_request_duration_milliseconds_bucket:p95_code200_dest
+            expr: |
+              histogram_quantile(0.95,
+                sum by (destination_workload,response_code,le,namespace,reporter)
+                (rate(istio_request_duration_milliseconds_bucket{
+                  reporter="destination",response_code="200"
+                }[1m]))
+              )
+            labels:
+              metric_type: aggregation
+          - record: job:istio_request_duration_milliseconds_bucket:p99_code200_dest
+            expr: |
+              histogram_quantile(0.99,
+                sum by (destination_workload,response_code,le,namespace,reporter)
+                (rate(istio_request_duration_milliseconds_bucket{
+                  reporter="destination",response_code="200"
+                }[1m]))
+              )
+            labels:
+              metric_type: aggregation
+
+  prometheus.yml:
+    rule_files:
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerting_rules.yml
+      ## Below two files are DEPRECATED will be removed from this default values file
+      - /etc/config/rules
+      - /etc/config/alerts
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+
+      # A scrape configuration for running Prometheus on a Kubernetes cluster.
+      # This uses separate scrape configs for cluster components (i.e. API server, node)
+      # and services to allow each to use different authentication configs.
+      #
+      # Kubernetes labels will be added as Prometheus labels on metrics via the
+      # `labelmap` relabeling action.
+
+      # Scrape config for API servers.
+      #
+      # Kubernetes exposes API servers as endpoints to the default/kubernetes
+      # service so this uses `endpoints` role and uses relabelling to only keep
+      # the endpoints associated with the default/kubernetes service using the
+      # default named port `https`. This works for single API server deployments as
+      # well as HA API server deployments.
+      - job_name: "kubernetes-apiservers"
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        scheme: https
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        # Keep only the default/kubernetes service endpoints for the https port. This
+        # will add targets for each API server which Kubernetes adds an endpoint to
+        # the default/kubernetes service.
+        relabel_configs:
+          - source_labels:
+              [
+                __meta_kubernetes_namespace,
+                __meta_kubernetes_service_name,
+                __meta_kubernetes_endpoint_port_name,
+              ]
+            action: keep
+            regex: default;kubernetes;https
+
+      - job_name: "kubernetes-nodes"
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        scheme: https
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        kubernetes_sd_configs:
+          - role: node
+
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics
+
+      - job_name: "kubernetes-nodes-cadvisor"
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        scheme: https
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        kubernetes_sd_configs:
+          - role: node
+
+        # This configuration will work only on kubelet 1.7.3+
+        # As the scrape endpoints for cAdvisor have changed
+        # if you are using older version you need to change the replacement to
+        # replacement: /api/v1/nodes/$1:4194/proxy/metrics
+        # more info here https://github.com/coreos/prometheus-operator/issues/633
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+      # Scrape config for service endpoints.
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/scrape`: Only scrape services that have a value of
+      # `true`, except if `prometheus.io/scrape-slow` is set to `true` as well.
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: If the metrics are exposed on a different port to the
+      # service then set this appropriately.
+      # * `prometheus.io/param_<parameter>`: If the metrics endpoint uses parameters
+      # then you can set any parameter
+      - job_name: "kubernetes-service-endpoints"
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: drop
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [
+                __address__,
+                __meta_kubernetes_service_annotation_prometheus_io_port,
+              ]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+
+      # Scrape config for slow service endpoints; same as above, but with a larger
+      # timeout and a larger interval
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/scrape-slow`: Only scrape services that have a value of `true`
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: If the metrics are exposed on a different port to the
+      # service then set this appropriately.
+      # * `prometheus.io/param_<parameter>`: If the metrics endpoint uses parameters
+      # then you can set any parameter
+      - job_name: "kubernetes-service-endpoints-slow"
+
+        scrape_interval: 5m
+        scrape_timeout: 30s
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [
+                __address__,
+                __meta_kubernetes_service_annotation_prometheus_io_port,
+              ]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+
+      - job_name: "prometheus-pushgateway"
+        honor_labels: true
+
+        kubernetes_sd_configs:
+          - role: service
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: pushgateway
+
+      # Example scrape config for probing services via the Blackbox Exporter.
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/probe`: Only probe services that have a value of `true`
+      - job_name: "kubernetes-services"
+
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+
+        kubernetes_sd_configs:
+          - role: service
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: true
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __address__
+            replacement: blackbox
+          - source_labels: [__param_target]
+            target_label: instance
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Example scrape config for pods
+      #
+      # The relabeling allows the actual pod scrape endpoint to be configured via the
+      # following annotations:
+      #
+      # * `prometheus.io/scrape`: Only scrape pods that have a value of `true`,
+      # except if `prometheus.io/scrape-slow` is set to `true` as well.
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: Scrape the pod on the indicated port instead of the default of `9102`.
+      - job_name: "kubernetes-pods"
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: pod
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape_slow]
+            action: drop
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+            action: replace
+            regex: (https?)
+            target_label: __scheme__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          #- source_labels: [__meta_kubernetes_pod_phase]
+          #  regex: Pending|Succeeded|Failed|Completed
+          #  action: drop
+        # drop istio metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: istio_requests_total
+            action: keep
+          - source_labels: [__name__]
+            regex: "(istio_request_bytes|envoy).+"
+            action: drop
+
+      # Example Scrape config for pods which should be scraped slower. An useful example
+      # would be stackriver-exporter which queries an API on every scrape of the pod
+      #
+      # The relabeling allows the actual pod scrape endpoint to be configured via the
+      # following annotations:
+      #
+      # * `prometheus.io/scrape-slow`: Only scrape pods that have a value of `true`
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: Scrape the pod on the indicated port instead of the default of `9102`.
+      - job_name: "kubernetes-pods-slow"
+
+        scrape_interval: 5m
+        scrape_timeout: 30s
+
+        kubernetes_sd_configs:
+          - role: pod
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+            action: replace
+            regex: (https?)
+            target_label: __scheme__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Pending|Succeeded|Failed|Completed
+            action: drop
+serverFiles:
+  prometheus.yml:
+    rule_files:
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerting_rules.yml
+      ## Below two files are DEPRECATED will be removed from this default values file
+      - /etc/config/rules
+      - /etc/config/alerts
+
+    scrape_configs:
+      # job prometheus
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+
+      # A scrape configuration for running Prometheus on a Kubernetes cluster.
+      # This uses separate scrape configs for cluster components (i.e. API server, node)
+      # and services to allow each to use different authentication configs.
+      #
+      # Kubernetes labels will be added as Prometheus labels on metrics via the
+      # `labelmap` relabeling action.
+
+      # Scrape config for API servers.
+      #
+      # Kubernetes exposes API servers as endpoints to the default/kubernetes
+      # service so this uses `endpoints` role and uses relabelling to only keep
+      # the endpoints associated with the default/kubernetes service using the
+      # default named port `https`. This works for single API server deployments as
+      # well as HA API server deployments.
+      - job_name: "kubernetes-apiservers"
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        scheme: https
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        # Keep only the default/kubernetes service endpoints for the https port. This
+        # will add targets for each API server which Kubernetes adds an endpoint to
+        # the default/kubernetes service.
+        relabel_configs:
+          - source_labels:
+              [
+                __meta_kubernetes_namespace,
+                __meta_kubernetes_service_name,
+                __meta_kubernetes_endpoint_port_name,
+              ]
+            action: keep
+            regex: default;kubernetes;https
+        # drop metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: ".+_bucket"
+            action: drop
+          - source_labels: [__name__]
+            regex: ".+"
+            action: keep
+      # job nodes
+      - job_name: "kubernetes-nodes"
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics
+      # job pods
+
+      - job_name: "kubernetes-nodes-cadvisor"
+
+        # Default to scraping over https. If required, just disable this or change to
+        # `http`.
+        scheme: https
+
+        # This TLS & bearer token file config is used to connect to the actual scrape
+        # endpoints for cluster components. This is separate to discovery auth
+        # configuration because discovery & scraping are two separate concerns in
+        # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+        # the cluster. Otherwise, more config options have to be provided within the
+        # <kubernetes_sd_config>.
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # If your node certificates are self-signed or use a different CA to the
+          # master CA, then disable certificate verification below. Note that
+          # certificate verification is an integral part of a secure infrastructure
+          # so this should only be disabled in a controlled environment. You can
+          # disable certificate verification by uncommenting the line below.
+          #
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+        kubernetes_sd_configs:
+          - role: node
+
+        # This configuration will work only on kubelet 1.7.3+
+        # As the scrape endpoints for cAdvisor have changed
+        # if you are using older version you need to change the replacement to
+        # replacement: /api/v1/nodes/$1:4194/proxy/metrics
+        # more info here https://github.com/coreos/prometheus-operator/issues/633
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+      # Scrape config for service endpoints.
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/scrape`: Only scrape services that have a value of
+      # `true`, except if `prometheus.io/scrape-slow` is set to `true` as well.
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: If the metrics are exposed on a different port to the
+      # service then set this appropriately.
+      # * `prometheus.io/param_<parameter>`: If the metrics endpoint uses parameters
+      # then you can set any parameter
+      - job_name: "kubernetes-service-endpoints"
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: drop
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [
+                __address__,
+                __meta_kubernetes_service_annotation_prometheus_io_port,
+              ]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: monitor_namespace
+          #- source_labels: [__meta_kubernetes_namespace]
+          #  action: replace
+          #  target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          # relabel
+          - source_labels: [_name_, exported_namespace]
+            regex: ".*"
+            target_label: namespace
+          # drop aliyun arms
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: "arms-prom"
+            action: drop
+
+      # Scrape config for slow service endpoints; same as above, but with a larger
+      # timeout and a larger interval
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/scrape-slow`: Only scrape services that have a value of `true`
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: If the metrics are exposed on a different port to the
+      # service then set this appropriately.
+      # * `prometheus.io/param_<parameter>`: If the metrics endpoint uses parameters
+      # then you can set any parameter
+      - job_name: "kubernetes-service-endpoints-slow"
+
+        scrape_interval: 5m
+        scrape_timeout: 30s
+
+        kubernetes_sd_configs:
+          - role: endpoints
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [
+                __address__,
+                __meta_kubernetes_service_annotation_prometheus_io_port,
+              ]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+
+      - job_name: "prometheus-pushgateway"
+        honor_labels: true
+
+        kubernetes_sd_configs:
+          - role: service
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: pushgateway
+
+      # Example scrape config for probing services via the Blackbox Exporter.
+      #
+      # The relabeling allows the actual service scrape endpoint to be configured
+      # via the following annotations:
+      #
+      # * `prometheus.io/probe`: Only probe services that have a value of `true`
+      - job_name: "kubernetes-services"
+
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+
+        kubernetes_sd_configs:
+          - role: service
+
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: true
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __address__
+            replacement: blackbox
+          - source_labels: [__param_target]
+            target_label: instance
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: service
+
+      # Example scrape config for pods
+      #
+      # The relabeling allows the actual pod scrape endpoint to be configured via the
+      # following annotations:
+      #
+      # * `prometheus.io/scrape`: Only scrape pods that have a value of `true`,
+      # except if `prometheus.io/scrape-slow` is set to `true` as well.
+      # * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+      # to set this to `https` & most likely set the `tls_config` of the scrape config.
+      # * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+      # * `prometheus.io/port`: Scrape the pod on the indicated port instead of the default of `9102`.
+
+      - job_name: "kubernetes-pods"
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape_slow]
+            action: drop
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+            action: replace
+            regex: (https?)
+            target_label: __scheme__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Pending|Succeeded|Failed|Completed
+            action: drop
+        # drop metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: "(istio_request_|istio_response_|istio_agent_|envoy).+"
+            action: drop
+          - source_labels: [__name__]
+            regex: "nginx_ingress_controller_.+_bucket"
+            action: drop
+          - source_labels: [__name__]
+            regex: .+
+            action: keep
+      # job pods slow
+      - job_name: "kubernetes-pods-slow"
+        scrape_interval: 5m
+        scrape_timeout: 30s
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+            action: replace
+            regex: (https?)
+            target_label: __scheme__
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Pending|Succeeded|Failed|Completed
+            action: drop
+      # job endpoints
+      - job_name: "kubernetes-service-endpoints"
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: drop
+            regex: true
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              [
+                __address__,
+                __meta_kubernetes_service_annotation_prometheus_io_port,
+              ]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+            replacement: __param_$1
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: monitor_namespace
+          #- source_labels: [__meta_kubernetes_namespace]
+          #  action: replace
+          #  target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          # relabel
+          - source_labels: [_name_, exported_namespace]
+            regex: ".*"
+            target_label: namespace
+          # drop aliyun arms
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: "arms-prom"
+            action: drop
+      # Istio jobs
+      # Mixer scrapping. Defaults to Prometheus and mixer on same namespace.
+      - job_name: "istio-mesh"
+        scrape_interval: 1m
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names:
+                - istio-system
+        relabel_configs:
+          - source_labels:
+              [
+                __meta_kubernetes_service_name,
+                __meta_kubernetes_endpoint_port_name,
+              ]
+            action: keep
+            regex: istio-telemetry;prometheus
+      # Scrape config for envoy stats
+      - job_name: "envoy-stats"
+        metrics_path: /stats/prometheus
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: ".*-envoy-prom"
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:15090
+            target_label: __address__
+          - action: labeldrop
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+        # drop istio metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            #regex: "(istio_request_|istio_response_|istio_agent_|envoy).+"
+            regex: "(istio_request_bytes_buck|istio_response_|istio_agent_|envoy).+"
+            action: drop
+          - source_labels: [__name__]
+            regex: .+
+            action: keep
+      #- job_name: 'istio-policy'
+      #  kubernetes_sd_configs:
+      #  - role: endpoints
+      #    namespaces:
+      #      names:
+      #      - istio-system
+      #  relabel_configs:
+      #  - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      #    action: keep
+      #    regex: istio-policy;http-policy-monitoring
+      #- job_name: 'istio-telemetry'
+      #  kubernetes_sd_configs:
+      #  - role: endpoints
+      #    namespaces:
+      #      names:
+      #      - istio-system
+      #  relabel_configs:
+      #  - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      #    action: keep
+      #    regex: istio-telemetry;http-monitoring
+      #- job_name: 'pilot'
+      #  kubernetes_sd_configs:
+      #  - role: endpoints
+      #    namespaces:
+      #      names:
+      #      - istio-system
+      #  relabel_configs:
+      #  - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      #    action: keep
+      #    regex: istiod;http-monitoring
+      #  - source_labels: [__meta_kubernetes_service_label_app]
+      #    target_label: app
+      #  # drop istio metrics
+      #  metric_relabel_configs:
+      #    - source_labels: [__name__]
+      #      regex: "(istio_request_|istio_response_|istio_agent_|envoy).+"
+      #      action: drop
+      #    - source_labels: [__name__]
+      #      regex: .+
+      #      action: keep
+      #- job_name: 'sidecar-injector'
+      #  kubernetes_sd_configs:
+      #  - role: endpoints
+      #    namespaces:
+      #      names:
+      #      - istio-system
+      #  relabel_configs:
+      #  - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      #    action: keep
+      #    regex: istio-sidecar-injector;http-monitoring
+      ### job nodes cadvisor
+      - job_name: "kube-nodes-cadvisor"
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          #- action: labelmap
+          #  regex: __meta_kubernetes_node_label_(.+)
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_kubernetes_io_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+        # drop metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: "container_tasks_state"
+            action: drop
+          - source_labels: [__name__]
+            regex: .+
+            action: keep
+      ### job apiservers
+      - job_name: "kubernetes-apiservers"
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels:
+              [
+                __meta_kubernetes_namespace,
+                __meta_kubernetes_service_name,
+                __meta_kubernetes_endpoint_port_name,
+              ]
+            action: keep
+            regex: default;kubernetes;https
+        # drop metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: ".+_bucket"
+            action: drop
+          - source_labels: [__name__]
+            regex: ".+"
+            action: keep
+      ### job prometheus-pushgateway
+      - job_name: "prometheus-pushgateway"
+        honor_labels: true
+        kubernetes_sd_configs:
+          - role: service
+        relabel_configs:
+          - source_labels:
+              [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: pushgateway
+      # Scrape otel metrics
+      - job_name: "otel-java-agent"
+        scrape_interval: 2m
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          #- source_labels: [__meta_kubernetes_pod_container_port_name]
+          #  action: keep
+          #  regex: '.*-envoy-prom'
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: "matrix(-pre)?"
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: keep
+            regex: "(gateway|[a-z]+-services.+)"
+          - source_labels:
+              [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:9464
+            target_label: __address__
+          - action: labeldrop
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod_name
+        # drop istio metrics
+        metric_relabel_configs:
+          - source_labels: [__name__]
+            regex: "(istio_request_|istio_response_|istio_agent_|envoy).+"
+            action: drop
+          - source_labels: [__name__]
+            regex: .+
+            action: keep

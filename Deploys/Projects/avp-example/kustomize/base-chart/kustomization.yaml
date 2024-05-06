@@ -1,0 +1,35 @@
+## 要更改图表的位置，请在您的 kustomization 文件中使用它：
+# 根据需要更改 charts ，但最好将其保留在与 kustomization.yaml 文件相同的目录中（或之下）。如果它位于 kustomization 根之外，则 build 命令将失败，除非给出标志 '--load-restrictor=none' 来禁用文件加载限制。
+resources:
+  - ingress.yaml
+
+helmGlobals:
+  chartHome: charts
+
+helmCharts:
+  - name: example
+    releaseName: my-example
+    # chart: ../../base/charts/example  # 指明 chart 相对路径
+    repo: https://SJFCS.github.io/DevOpsConfig
+    version: 0.2.0
+    namespace: default
+    # includeCRDs 字段指示 Helm 生成 CustomResourceDefinitions 。有关详细信息，请参阅 Helm 文档https://helm.sh/docs/chart_best_practices/custom_resource_definitions/。
+    includeCRDs: false
+    valuesMerge: override # how to treat valuesInline with respect to Values. Legal values: ‘merge’, ‘override’, ‘replace’. Defaults to ‘override’.
+    # Values files:
+    valuesFile: values.yaml
+    # additionalValuesFiles:
+    #   - values-file-1.yml
+    #   - values-file-2.yml
+
+    # valuesInline 字段会覆盖一些本机图表值。
+    # https://kubectl.docs.kubernetes.io/references/kustomize/builtins/#_helmchartinflationgenerator_
+    # valuesInline:
+    #   agent:
+    #     resources:
+    #       requests:
+    #         # cpu: "150m" # Will inherit from base
+    #         memory: "2Gi" # Will override
+    #       limits:
+    #         # cpu: "200m"  # Will inherit from base
+    #         memory: "3Gi" # Will override

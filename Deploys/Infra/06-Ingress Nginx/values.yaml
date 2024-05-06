@@ -1,0 +1,8 @@
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: prometheus
+# https://grafana.com/grafana/dashboards/9614-nginx-ingress-controller/

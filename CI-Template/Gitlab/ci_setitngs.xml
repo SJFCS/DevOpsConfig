@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings
+        xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <pluginGroups></pluginGroups>
+    <proxies></proxies>
+    <servers></servers>
+    <mirrors>
+        <mirror>
+            <id>public</id>
+            <mirrorOf>external:*,!private</mirrorOf>
+            <name>public</name>
+            <url>https://maven.public.com/repository/public</url>
+        </mirror>
+        <mirror>
+            <id>private</id>
+            <mirrorOf>private</mirrorOf>
+            <name>private Repositories</name>
+            <url>https://maven.private.cn/repository/private/</url>
+        </mirror>
+    </mirrors>
+    <profiles></profiles>
+</settings>

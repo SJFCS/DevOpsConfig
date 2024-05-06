@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-services
+spec:
+  template:
+    spec:
+      containers:
+      - name: app-services
+        env:
+          # otel env
+          - name: OTEL_SERVICE_NAME
+            value: "$(spring_cloud_nacos_discovery_ip).$(DEPLOY_ENV)"
+          - name: JAVA_TOOL_OPTIONS
+            value: " -XX:-OmitStackTraceInFastThrow -javaagent:/share/opentelemetry-javaagent.jar "
+        volumeMounts:
+        - name: share
+          mountPath: /share
+          readOnly: true
+      initContainers:
+      - name: otel-init
+        image: docker-registry-vpc.myrightone.com/world/otel-init:v1.14.0
+        command: ["cp", "-v", "/opentelemetry-javaagent.jar", "/share/"]
+        volumeMounts:
+        - name: share
+          mountPath: /share
+      volumes:
+      - name: share
+        emptyDir: {}

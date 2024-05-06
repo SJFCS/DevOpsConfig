@@ -1,0 +1,43 @@
+{
+    "receiver": "prometheus-alert-center",
+        "status": "firing",
+            "alerts": [{
+                "status": "firing",
+                "labels": {
+                    "alertname": "TargetDown",
+                    "index": "1",
+                    "instance": "example-1",
+                    "job": "example",
+                    "level": "2",
+                    "service": "example"
+                },
+                "annotations": {
+                    "description": "target was down! example dev /example-1 was down for more than 120s.",
+                    "level": "2",
+                    "timestamp": "2020-05-21 02:58:07.829 +0000 UTC"
+                },
+                "startsAt": "2020-05-21T02:58:07.830216179Z",
+                "endsAt": "0001-01-01T00:00:00Z",
+                "generatorURL": "https://prometheus-alert-center/graph?g0.expr=up%7Bjob%21%3D%22kubernetes-pods%22%2Cjob%21%3D%22kubernetes-service-endpoints%22%7D+%21%3D+1\u0026g0.tab=1",
+                "fingerprint": "e2a5025853d4da64"
+            }],
+                "groupLabels": {
+        "instance": "example-1"
+    },
+    "commonLabels": {
+        "alertname": "TargetDown",
+            "index": "1",
+                "instance": "example-1",
+                    "job": "example",
+                        "level": "2",
+                            "service": "example"
+    },
+    "commonAnnotations": {
+        "description": "target was down! example dev /example-1 was down for more than 120s.",
+            "level": "2",
+                "timestamp": "2020-05-21 02:58:07.829 +0000 UTC"
+    },
+    "externalURL": "https://prometheus-alert-center",
+        "version": "4",
+            "groupKey": "{}/{job=~\"^(?:.*)$\"}:{instance=\"example-1\"}"
+}

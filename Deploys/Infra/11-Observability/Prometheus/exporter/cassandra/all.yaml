@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra-exporter
+spec:
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+      - name: cassandra-exporter
+        imagePullPolicy: IfNotPresent
+        image: bitnami/cassandra-exporter:2.3.7
+        #command:
+        #  - /bin/kafka_exporter
+        #  - --kafka.server=kafka01-vpc.myrightone.com:9093
+        ports:
+        - name: http-metrics
+          containerPort: 8080
+          protocol: TCP
+        env:
+        - name: TZ
+          value: "Asia/Shanghai"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cassandra-exporter
+spec:
+  ports:
+  - name: http-metrics
+    port: 8080
+    protocol: TCP
+    targetPort: 8080

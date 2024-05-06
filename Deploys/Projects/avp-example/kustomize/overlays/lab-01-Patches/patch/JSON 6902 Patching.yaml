@@ -1,0 +1,7 @@
+- target:
+    kind: Deployment
+    name: web-deployment
+  patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 5

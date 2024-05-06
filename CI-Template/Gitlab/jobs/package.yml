@@ -1,0 +1,363 @@
+# ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+# 前端
+# ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+.package-npm-abroad-platform:
+  # npm构建带缓存
+  script:
+    - npm config set registry https://nexus-hz.repo.cn/repository/nmp-group/
+    - npm install
+    - npm run build
+  cache:
+    untracked: true
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - vendor/
+      - bootstrap/
+      - node_modules/
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 week
+
+.package-npm:
+  # npm构建不带缓存，构建参数与分支对应
+  script:
+    - npm config set registry https://nexus-hz.repo.cn/repository/nmp-group/
+    - npm install
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - if [ $CI_ENV == "master" ]; then export CI_ENV="prod" ; fi
+    - npm run build:$CI_ENV
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 week
+
+.package-yarn:
+  #yarn 构建
+  script:
+    - yarn config set registry https://nexus-hz.repo.cn/repository/nmp-group/
+    - yarn install
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - if [ $CI_ENV == "master" ]; then export CI_ENV="prod" ; fi
+    - npm run build:$CI_ENV
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1 week
+
+# ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+# maven 当前正在使用 .mvn-package-build
+# ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- ------- -------
+.sync-image-aws: &sync-image-aws ## 修镜像仓库命名空间。用于同步到海外镜像仓库
+  - echo "sync-image-aws"
+  # 更改镜像命名空间
+  # 原有 cp-matrix 全量同步量大时容易阻塞，现在分开国内：matrix-cn、海外同步：matrix-world
+  - export CI_REGISTRY_NAMESPACE=matrix-cn
+  - if [ $CI_COMMIT_BRANCH == dev-branch-04 ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  - if [ $CI_COMMIT_BRANCH == test-branch-04 ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  - if [ $CI_COMMIT_BRANCH == release ]; then export CI_REGISTRY_NAMESPACE="matrix-world" ; fi
+  # 更新全局变量：镜像仓库地址
+  # 国内镜像仓库地址
+  - export CI_REGISTRY_IMAGE=$CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  # 海外镜像仓库地址
+  # - export AWS_CI_REGISTRY_IMAGE=$AWS_CI_REGISTRY_URL/$CI_REGISTRY_NAMESPACE/$CI_PROJECT_NAME
+  - echo "镜像仓库命名空间=$CI_REGISTRY_NAMESPACE 国内外统一镜像仓库地址=$CI_REGISTRY_IMAGE"
+.jib-package-OldProjectStructure:
+  # 使用本地缓存构建打包合并
+  image:
+    entrypoint: [""]
+  variables:
+    # 指定本地缓存目录
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+      ## 判断relase分支pom依赖版本
+    - xxx=0
+    - if [ $CI_COMMIT_BRANCH == "release" ]; then export xxx=`cat pom.xml |grep -E 'groupId|version' |awk '{if (NR>2){print }}' |grep -i "snapshot" |wc -l` ;echo $xxx;fi
+    - cat pom.xml |grep -E 'groupId|version|artifactId' |grep -A 2 xx |grep -i -B 2 "snapshot" &echo
+    - if [ $xxx -gt 0 ];then echo "判断pom依赖版本存在SNAPSHOT禁止编译" && exit 23 ;fi
+
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    - mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean install com.google.cloud.tools:jib-maven-plugin:3.1.2:build  -Djib.from.image=${FROM_IMAGE} -Djib.to.image=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA  -Djib.to.auth.username=$CI_REGISTRY_USER -Djib.to.auth.password=$CI_REGISTRY_PASSWORD
+  retry:
+    max: 2
+    when:
+      - script_failure
+.jib-package-NewProjectStructure:
+  # 使用本地缓存构建打包合并
+  image:
+    entrypoint: [""]
+  variables:
+    # 依赖使用了本地缓存
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+      ## 判断relase分支pom依赖版本
+    - xxx=0
+    - if [ $CI_COMMIT_BRANCH == "release" ]; then export xxx=`cat pom.xml |grep -E 'groupId|version' |awk '{if (NR>2){print }}' |grep -i "snapshot" |wc -l` ;echo $xxx;fi
+    - cat pom.xml |grep -E 'groupId|version|artifactId' |grep -A 2 xx |grep -i -B 2 "snapshot" &echo
+    - if [ $xxx -gt 0 ];then echo "pom依赖版本存在SNAPSHOT禁止编译" && exit 23 ;fi
+
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+      ## 仅打包业务biz模块，开发模块架构不规范 需要判断
+    - echo $CI_PROJECT_NAME
+    - if [ $CI_PROJECT_NAME == "ump-services" ];
+      then
+      module_biz=ump-module-biz;
+      module_api=ump-module-api;
+      else
+      module_biz=${CI_PROJECT_NAME}-biz;
+      module_api=${CI_PROJECT_NAME}-api;
+      fi
+    - echo "module-biz:$module_biz"
+    - echo "module-api:$module_api"
+    - mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean install
+    - mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean install -pl $module_biz  com.google.cloud.tools:jib-maven-plugin:3.1.2:build  -Djib.from.image=${FROM_IMAGE} -Djib.to.image=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA  -Djib.to.auth.username=$CI_REGISTRY_USER -Djib.to.auth.password=$CI_REGISTRY_PASSWORD
+  retry:
+    max: 2
+    when:
+      - script_failure
+.mvn-deploy:
+  # 使用本地缓存构建打包合并
+  image:
+    entrypoint: [""]
+  variables:
+    # 依赖使用了本地缓存
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+    ## 判断relase分支pom依赖版本，release禁止snapshot打包
+    - xxx=0
+    - if [ $CI_COMMIT_BRANCH == "release" ]; then export xxx=`cat pom.xml |grep -E 'groupId|version' |awk '{if (NR>2){print }}' |grep -i "snapshot" |wc -l` ;echo $xxx;fi
+    - cat pom.xml |grep -E 'groupId|version|artifactId' |grep -A 2 xx |grep -i -B 2 "snapshot" &echo
+    - if [ $xxx -gt 0 ];then echo "pom依赖版本存在SNAPSHOT禁止编译" && exit 23 ;fi
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    ## 此阶段仅打包业务biz模块。开发模块架构不规范 此处需要判断
+    # 获取二方库模块目录和版本
+    - |
+      if [ $CI_PROJECT_NAME == "ump-services" ];
+        then 
+          module_biz=ump-module-biz;
+          module_api=ump-module-api;
+          current_version=`cat ump-module-api/pom.xml |grep -A3 ump-module-api |grep '<version>'| sed 's/<version>/ /g' | sed 's/<\/version>/ /g' |awk '{print $1}'`;
+        else
+          module_biz=${CI_PROJECT_NAME}-biz;
+          module_api=${CI_PROJECT_NAME}-api;        
+          if [ -d  $module_api ];
+            then 
+              current_version=`cat pom.xml  |grep '<revision>'  | sed 's/<revision>/ /g' | sed 's/<\/revision>/ /g' |awk '{print $1}'`;
+            else
+              current_version=null ;
+              echo "not exist $module_api,set current_version=null" ;
+          fi 
+      fi
+    - echo "module_api:$module_api  current_version:$current_version"
+    # 判断是否需要deploy
+    # 1、存在文件夹${CI_PROJECT_NAME}-biz为新项目结构需要mvn deploy，不存在则为老项目结构不需要mvn deploy
+    # 2、已经deploy则跳过
+    # - |
+    #   if [ -d  $module_api ];
+    #     then
+    #       # 获取当前版本号，判断是仓库中否存在此版本，不存在则deploy
+    #       echo 检查包是否存在;
+    #       mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  dependency:get -DrepoUrl=https://nexus-hz.xx.cn/repository/maven-public/ -pl $module_api -Dartifact=cn.xx:$module_api:$current_version && status=0 || status=1 ;
+    #       if [ $status == "1" ];
+    #         then
+    #           echo "开始deploy cn.xx:$module_api:$current_version";
+    #           echo "mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean package -pl $module_api";
+    #           mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean deploy -pl $module_api ;
+    #         else
+    #           echo "跳过deploy cn.xx:$module_api:$current_version";
+    #         fi
+    #     else
+    #       echo "not exit $module_api,skip mvn deploy" ;
+    #     fi
+    - mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml  clean deploy -pl $module_api && status=0 || status=1
+    - if [ $status == "1" ]; then echo "deploy cn.xx:$module_api:$current_version";else echo "skip deploy"; fi
+  retry:
+    max: 2
+    when:
+      - script_failure
+
+.package-mvn:
+  variables:
+    # This will suppress any download for dependencies and plugins or upload messages which would clutter the console log.
+    # `showDateTime` will show the passed time in milliseconds. You need to specify `--batch-mode` to make this work.
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    # As of Maven 3.3.0 instead of this you may define these options in `.mvn/maven.config` so the same config is used
+    # when running from the command line.
+    # `installAtEnd` and `deployAtEnd` are only effective with recent version of the corresponding plugins.
+    MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+
+  #  CR_ADDRESS: docker-registry-vpc.xx.com
+  #  CR_IMAGE: docker-registry-vpc.xx.com/cp-matrix/$CI_PROJECT_NAME
+  #    - 'mvn $MAVEN_CLI_OPTS -Dmaven.test.skip=true clean install'
+  script:
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    - "mvn -U $MAVEN_CLI_OPTS  -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true -s ci_settings.xml clean install"
+  cache:
+    paths:
+      - .m2/repository
+  artifacts:
+    paths:
+      - target/*.jar
+    expire_in: 1 day
+
+.package-mvn-local-cache:
+  variables:
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    - "mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml clean install"
+    - rm -rf $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - mkdir -p $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - mv $CI_PROJECT_DIR/target $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+
+#使用多个线程，并行构建相互之间没有依赖关系的模块
+# 4 表示用4个线程构建
+#$ mvn -T 4 clean install
+# 1C 表示为机器的每个 core分配一个线程，如何4核4线程的机器，就是 1*4 个线程
+#$ mvn -T 1C clean install
+# 跳过失败的模块，编译到最后再报错
+#$ mvn clean install --fail-at-end
+.mvn-package-build:
+  # 使用本地缓存构建打包合并
+  image:
+    entrypoint: [""]
+  variables:
+    # 依赖使用了本地缓存
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+    # #批量构建时候有冲突 临时删除缓存
+    # - ls -l $package_cache$CI_PROJECT_DIR/.m2/repository/cn/xx/micro-services-core
+    # - ls -l $package_cache$CI_PROJECT_DIR/.m2/repository/cn/xx/
+    # - rm -rf $package_cache$CI_PROJECT_DIR/.m2/repository/cn/xx/*
+    ## 判断relase分支pom依赖版本
+    - xxx=0
+    - if [ $CI_COMMIT_BRANCH == "release" ]; then export xxx=`cat pom.xml |grep -E 'groupId|version' |awk '{if (NR>2){print }}' |grep -i "snapshot" |wc -l` ;echo $xxx;fi
+    - cat pom.xml |grep -E 'groupId|version|artifactId' |grep -A 2 xx |grep -i -B 2 "snapshot" &echo
+    - if [ $xxx -gt 0 ];then echo "pom依赖版本存在SNAPSHOT禁止编译" && exit 23 ;fi
+    # - echo 清除缓存 $package_cache$CI_PROJECT_DIR/.m2/repository
+    # - ls -l $package_cache$CI_PROJECT_DIR/.m2/repository
+    # - rm -rf $package_cache$CI_PROJECT_DIR/.m2/repository/
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    - "mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml clean install"
+    # 在同一阶段不需要移动制品到缓存目录
+    #- rm -rf $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    #- mkdir -p $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    #- mv $CI_PROJECT_DIR/target $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    #
+    #- mv $package_cache$CI_PROJECT_DIR/$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA/target  $CI_PROJECT_DIR/
+    # - ls -al $CI_PROJECT_DIR/target
+    ## 镜像打包
+    - mkdir -p /kaniko/.docker && echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    # 微服务dockerfile每次层都是新的没必要使用 --cache-dir="$build_cache" 缓存
+    - /kaniko/executor  --cache=true --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - echo $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 2
+    when:
+      - script_failure
+
+.mvn-package-build-nocache:
+  #使用gitlab缓存，构建打包合并
+  #防止本地缓存失效备用方式
+  image:
+    entrypoint: [""]
+  variables:
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+    ## 判断relase分支pom依赖版本
+    - xxx=0
+    - if [ $CI_COMMIT_BRANCH == "release" ]; then export xxx=`cat pom.xml |grep -E 'groupId|version' |awk '{if (NR>2){print }}' |grep -i "snapshot" |wc -l` ;echo $xxx;fi
+    - cat pom.xml |grep -E 'groupId|version|artifactId' |grep -A 2 xx |grep -i -B 2 "snapshot" &echo
+    - if [ $xxx -gt 0 ];then echo "pom依赖版本存在SNAPSHOT禁止编译" && exit 23 ;fi
+
+    - if [ ! -f ci_settings.xml ];
+      then echo "CI settings missing\! ";
+      fi
+    - "mvn -U $MAVEN_CLI_OPTS  -s ci_settings.xml clean install"
+    ## 镜像打包
+    - mkdir -p /kaniko/.docker && echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    # 微服务dockerfile每次层都是新的没必要使用 --cache-dir="$build_cache" 缓存
+    - /kaniko/executor  --cache=true --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - echo $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  cache:
+    paths:
+      - .m2/repository
+  artifacts:
+    paths:
+      - target/*.jar
+    expire_in: 1 day
+  retry:
+    max: 2
+    when:
+      - script_failure
+
+# 新项目 ##########################################################################################################################################
+.use-shell:
+  #用于新的项目结构
+  image:
+    entrypoint: [""]
+  variables:
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+  script:
+    ## 海外使用独立仓库加快同步速度
+    - *sync-image-aws
+    # 打包并上传二方库
+    - ./ci_package.sh
+    - mkdir -p /kaniko/.docker && echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - cat /kaniko/.docker/config.json
+    # 微服务dockerfile每次层都是新的没必要使用 --cache-dir="$build_cache"
+    - /kaniko/executor  --cache=true --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - echo $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  retry:
+    max: 2
+    when:
+      - script_failure
+# # flink项目已不用 ##########################################################################################################################################
+
+# .flink-package-build:
+#   image:
+#     entrypoint: [""]
+#   variables:
+#     MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$package_cache$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+#     MAVEN_CLI_OPTS: " -Dmaven.compile.fork=true -T 2C -Dmaven.test.skip=true --batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+#   script:
+#     - 'mvn -U $MAVEN_CLI_OPTS clean install'
+#     - mkdir -p /kaniko/.docker && echo "{\"auths\":{\"$CI_REGISTRY_URL\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+#     - cat /kaniko/.docker/config.json
+#     - /kaniko/executor  --cache=true --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+#     - echo $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+#   retry:
+#     max: 1
+#     when:
+#       - script_failure

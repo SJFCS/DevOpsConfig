@@ -1,0 +1,22 @@
+# apiVersion: builtin
+apiVersion: kustomize.config.k8s.io/v1
+kind: HelmChartInflationGenerator
+metadata:
+  name: example
+helmCharts:
+  - name: example
+    releaseName: my-example
+    valuesInline:
+      someKey: someNewValue
+      anotherKey:
+        nestedKey: nestedValue
+# # The name of the chart to use
+# chartName: haproxy-ingress
+# # The name of the release
+# releaseName: hydra
+# # Path to a values.yaml
+# values: values.yaml
+# # Namespace to deploy to
+# releaseNamespace: ingress-controller
+# # URL to the Repo
+# chartRepoUrl:  https://haproxy-ingress.github.io/charts

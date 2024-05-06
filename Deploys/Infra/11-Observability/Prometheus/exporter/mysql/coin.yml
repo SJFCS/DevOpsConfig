@@ -1,0 +1,16 @@
+mysql:
+  host: "matrix-coin-instance-1.ceqmmpyakch8.ap-southeast-1.rds.amazonaws.com"
+  pass: "Ke4AVp9s_A0"
+  user: "exporter"
+
+podLabels:
+  db_instance: matrix-coin
+  env: prod
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 512Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi

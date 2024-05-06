@@ -1,0 +1,36 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    release: prometheus
+  name: demo
+  namespace: prometheus
+spec:
+  groups:
+    - name: demo
+      rules:
+        - alert: demo
+          annotations:
+            description:
+              Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint
+              }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available
+              space left and is filling up1.
+            runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemspacefillingup
+            summary: Filesystem is predicted to run out of space within the next 24 hours.
+          expr: |-
+            (
+              max without (endpoint) (sum without (instance) (up{job=~".*etcd.*"} == bool 0) or count without (To) (sum without (instance) (rate(etcd_network_peer_sent_failures_total{job=~".*etcd.*"}[2m])) > 0.01)) == 1
+            )
+          for: 10s
+          labels:
+            severity: warning
+    - name: network_IO
+      rules:
+        - record: custom_container_network_receive_bytes_total
+          expr: sum (rate (container_network_receive_bytes_total[5m]))by (node)
+        - record: custom_container_network_transmit_bytes_total
+          expr: sum (rate (container_network_transmit_bytes_total[5m])) by (node)
+        - record: custom_wmi_container_network_receive_bytes_total
+          expr: sum (rate (wmi_container_network_receive_bytes_total[5m]))by (node)
+        - record: custom_wmi_container_network_transmit_bytes_total
+          expr: sum (rate (wmi_container_network_transmit_bytes_total[5m]))by (node)

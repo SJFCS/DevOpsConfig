@@ -1,0 +1,37 @@
+dashboard:
+  # -- Deploy dashboard server
+  enabled: true
+  # -- Set cluster role to readonly
+  readonly: false
+
+  ## Ingress configuration.
+  ## ref: https://kubernetes.io/docs/user-guide/ingress/
+  ##
+  ingress:
+    # -- Enable dashboard ingress support
+    enabled: true
+    # -- Dashboard ingress annotations
+    annotations:
+      cert-manager.io/cluster-issuer: cluster-issuer-cloudflare-letsencrypt-prod
+      external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+      external-dns.alpha.kubernetes.io/hostname: argocd-rollouts.cloudnative.love
+      external-dns.alpha.kubernetes.io/ttl: "120"
+      kubernetes.io/ingress.class: nginx
+      kubernetes.io/tls-acme: "true"
+      # nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+      # nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+      # nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+    # -- Dashboard ingress class name
+    ingressClassName: "nginx"
+
+    # -- Dashboard ingress hosts
+    ## Argo Rollouts Dashboard Ingress.
+    ## Hostnames must be provided if Ingress is enabled.
+    ## Secrets must be manually created in the namespace
+    hosts:
+      - argocd-rollouts.cloudnative.love
+    # -- Dashboard ingress tls
+    tls:
+      - secretName: argocd-rollouts-cloudnative-love-lts
+        hosts:
+          - argocd-rollouts.cloudnative.love

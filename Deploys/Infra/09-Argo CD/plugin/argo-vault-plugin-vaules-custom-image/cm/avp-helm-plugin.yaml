@@ -1,0 +1,8 @@
+#   - |
+#     helm template $ARGOCD_APP_NAME --include-crds -n $ARGOCD_APP_NAMESPACE ${ARGOCD_ENV_HELM_ARGS} . |
+#     argocd-vault-plugin generate -
+# lockRepo: false
+
+#     helm template $ARGOCD_APP_NAME -n $ARGOCD_APP_NAMESPACE -f <(echo "$ARGOCD_ENV_HELM_VALUES") . |
+#     argocd-vault-plugin generate -
+# lockRepo: false

@@ -1,0 +1,117 @@
+# 由于我的集群使用xpack证书，当我尝试使用证书认证时，提示x509错误。现在我使用用户名和密码，然后跳过SSL认证，目前工作正常
+
+es:
+  ## Address (host and port) of the Elasticsearch node we should connect to.
+  ## This could be a local node (localhost:9200, for instance), or the address
+  ## of a remote Elasticsearch server. When basic auth is needed,
+  ## specify as: <proto>://<user>:<password>@<host>:<port>. e.g., http://admin:pass@localhost:9200.
+  ##
+  uri: https://elastic:303U22CY4niU66Vay4Qa6lbN@logging-es-http:9200
+
+  ## Skip SSL verification when connecting to Elasticsearch
+  ## (only available if image.tag >= 1.0.4rc1)
+  ##
+  sslSkipVerify: true
+
+  ssl:
+    ## If true, a secure connection to ES cluster is used
+    ##
+    enabled: false
+
+    ## If true, certs from secretMounts will be need to be referenced instead of certs below
+    ##
+    useExistingSecrets: false
+
+    ca:
+      ## PEM that contains trusted CAs used for setting up secure Elasticsearch connection
+      ##
+      # pem:
+
+      # Path of ca pem file which should match a secretMount path
+      path: /ssl/ca.pem
+    client:
+      ## if true, client SSL certificate is used for authentication
+      ##
+      enabled: true
+
+      ## PEM that contains the client cert to connect to Elasticsearch.
+      ##
+      # pem:
+
+      # Path of client pem file which should match a secretMount path
+      pemPath: /ssl/client.pem
+
+      ## Private key for client auth when connecting to Elasticsearch
+      ##
+      # key:
+
+      # Path of client key file which should match a secretMount path
+      keyPath: /ssl/client.key
+
+serviceMonitor:
+  ## If true, a ServiceMonitor CRD is created for a prometheus operator
+  ## https://github.com/coreos/prometheus-operator
+  ##
+  enabled: trusted
+  apiVersion: "monitoring.coreos.com/v1"
+  namespace: elk-logging
+  labels:
+    release: prometheus
+  interval: 10s
+  jobLabel: ""
+  scrapeTimeout: 10s
+  scheme: http
+  relabelings: []
+  targetLabels: []
+  metricRelabelings: []
+  sampleLimit: 0
+
+podMonitor:
+  ## If true, a PodMonitor CRD is created for a Prometheus Operator
+  ## https://prometheus-operator.dev/docs/operator/api/#monitoring.coreos.com/v1.PodMonitor
+  ##
+  enabled: false
+  apiVersion: "monitoring.coreos.com/v1"
+  namespace: ""
+  labels: {}
+  interval: 60s
+  scrapeTimeout: 10s
+  honorLabels: true
+  scheme: http
+  relabelings: []
+  metricRelabelings: []
+
+prometheusRule:
+  ## If true, a PrometheusRule CRD is created for a prometheus operator
+  ## https://github.com/coreos/prometheus-operator
+  ##
+  ## The rules will be processed as Helm template, allowing to set variables in them.
+  enabled: false
+  namespace: elk-logging
+  labels: {}
+  rules:
+    []
+    # - record: elasticsearch_filesystem_data_used_percent
+    #   expr: |
+    #     100 * (elasticsearch_filesystem_data_size_bytes{service="{{ template "elasticsearch-exporter.fullname" . }}"} - elasticsearch_filesystem_data_free_bytes{service="{{ template "elasticsearch-exporter.fullname" . }}"})
+    #     / elasticsearch_filesystem_data_size_bytes{service="{{ template "elasticsearch-exporter.fullname" . }}"}
+    # - record: elasticsearch_filesystem_data_free_percent
+    #   expr: 100 - elasticsearch_filesystem_data_used_percent{service="{{ template "elasticsearch-exporter.fullname" . }}"}
+    # - alert: ElasticsearchTooFewNodesRunning
+    #   expr: elasticsearch_cluster_health_number_of_nodes{service="{{ template "elasticsearch-exporter.fullname" . }}"} < 3
+    #   for: 5m
+    #   labels:
+    #     severity: critical
+    #   annotations:
+    #     description: There are only {{ "{{ $value }}" }} < 3 ElasticSearch nodes running
+    #     summary: ElasticSearch running on less than 3 nodes
+    # - alert: ElasticsearchHeapTooHigh
+    #   expr: |
+    #     elasticsearch_jvm_memory_used_bytes{service="{{ template "elasticsearch-exporter.fullname" . }}", area="heap"} / elasticsearch_jvm_memory_max_bytes{service="{{ template "elasticsearch-exporter.fullname" . }}", area="heap"}
+    #     > 0.9
+    #   for: 15m
+    #   labels:
+    #     severity: critical
+    #   annotations:
+    #     description: The heap usage is over 90% for 15m
+    #     summary: ElasticSearch node {{ "{{ $labels.node }}" }} heap usage is high

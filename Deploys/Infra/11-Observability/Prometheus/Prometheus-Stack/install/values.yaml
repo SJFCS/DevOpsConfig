@@ -1,0 +1,200 @@
+defaultRules:
+  create: true
+#   rules:
+#     alertmanager: false
+#     etcd: false
+#     configReloaders: false
+#     general: false
+#     k8s: true
+#     kubeApiserver: true
+#     kubeApiserverAvailability: false
+#     kubeApiserverSlos: false
+#     kubelet: false
+#     kubeProxy: false
+#     kubePrometheusGeneral: false
+#     kubePrometheusNodeRecording: false
+#     kubernetesApps: false
+#     kubernetesResources: true
+#     kubernetesStorage: true
+#     kubernetesSystem: false
+#     kubeScheduler: false
+#     kubeStateMetrics: false
+#     network: true
+#     node: true
+#     nodeExporterAlerting: false
+#     nodeExporterRecording: false
+#     prometheus: false
+#     prometheusOperator: false
+
+additionalPrometheusRulesMap: {}
+#  rule-name:
+#    groups:
+#    - name: my_group
+#      rules:
+#      - record: my_record
+#        expr: 100 * my_record
+
+alertmanager:
+  enabled: true
+  config:
+    global:
+      resolve_timeout: 5m
+      # smtp_smarthost: "smtp.exmail.qq.com:587"
+      # smtp_from: "bajie@yizhoucp.cn"
+      # smtp_auth_username: "bajie@yizhoucp.cn"
+      # smtp_auth_password: "9HqjXm2g7VchaQpK"
+      # # smtp_hello: '163.com'
+      # # smtp_require_tls: false
+    # inhibit_rules:
+    #   - source_matchers:
+    #       - "severity = critical"
+    #     target_matchers:
+    #       - "severity =~ warning|info"
+    #     equal:
+    #       - "namespace"
+    #       - "alertname"
+    #   - source_matchers:
+    #       - "severity = warning"
+    #     target_matchers:
+    #       - "severity = info"
+    #     equal:
+    #       - "namespace"
+    #       - "alertname"
+    #   - source_matchers:
+    #       - "alertname = InfoInhibitor"
+    #     target_matchers:
+    #       - "severity = info"
+    #     equal:
+    #       - "namespace"
+    #   - target_matchers:
+    #       - "alertname = InfoInhibitor"
+    route:
+      # 根节点的警报会发送给默认的接收组
+      # 该节点中的警报会 namespace，cluster，alertname 做 Group，每个分组中最多每5分钟发送一条警报，同样的警报最多4小时发送一次
+      group_by: ["namespace", "alertname", "cluster"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      # 没有匹配到子节点的警报，会默认匹配到根节点上
+      receiver: "default"
+      # 接下来是子节点的配置：
+      routes:
+        - receiver: "default"
+          continue: true
+          matchers:
+            - severity="critical"
+            # - severity=~".+"
+        - receiver: "bigdata"
+          group_wait: 10s
+          group_by: [product, environment]
+          match_re:
+            service: mysql|cassandra|flink
+    receivers:
+      - name: "default"
+        webhook_configs:
+          - url: "http://prometheus-alert-center:8080/prometheusalert?type=fs&tpl=prometheus-fs&fsurl=https://open.feishu.cn/open-apis/bot/v2/hook/daed25a5-4fa0-43a2-a259-6543e65b6d7d"
+            send_resolved: true
+      # - name: emali
+      #   email_configs:
+      #     - to: "song.jinfeng@outlook.com"
+      #       send_resolved: true
+      - name: "bigdata"
+        webhook_configs:
+          - url: "http://prometheus-alert-center:8080/prometheusalert?type=fs&tpl=prometheus-fs&fsurl=https://open.feishu.cn/open-apis/bot/v2/hook/daed25a5-4fa0-43a2-a259-6543e65b6d7d"
+            send_resolved: true
+    templates:
+      - "/etc/alertmanager/config/*.tmpl"
+
+  alertmanagerSpec:
+    replicas: 3
+
+grafana:
+  image:
+    tag: "9.3.6"
+  enabled: true
+  grafana.ini:
+    users:
+      default_language: zh-Hans
+      viewers_can_edit: true
+    # auth:
+    #   disable_login_form: false
+    #   disable_signout_menu: false
+    # auth.anonymous:
+    #   enabled: true
+    #   org_role: Viewer
+    feature_toggles:
+      enable: traceqlEditor
+
+  additionalDataSources:
+    - name: Tempo
+      type: tempo
+      url: http://tempo.prometheus:3100
+      access: proxy
+prometheus:
+  enabled: true
+  prometheusSpec:
+    secrets:
+      - etcd-ssl
+    additionalScrapeConfigs: []
+    # - job_name: kube-etcd
+    #   kubernetes_sd_configs:
+    #     - role: node
+    #   scheme: https
+    #   tls_config:
+    #     ca_file:   /etc/prometheus/secrets/etcd-client-cert/etcd-ca
+    #     cert_file: /etc/prometheus/secrets/etcd-client-cert/etcd-client
+    #     key_file:  /etc/prometheus/secrets/etcd-client-cert/etcd-client-key
+    #   relabel_configs:
+    #   - action: labelmap
+    #     regex: __meta_kubernetes_node_label_(.+)
+    #   - source_labels: [__address__]
+    #     action: replace
+    #     targetLabel: __address__
+    #     regex: ([^:;]+):(\d+)
+    #     replacement: ${1}:2379
+    #   - source_labels: [__meta_kubernetes_node_name]
+    #     action: keep
+    #     regex: .*mst.*
+    #   - source_labels: [__meta_kubernetes_node_name]
+    #     action: replace
+    #     targetLabel: node
+    #     regex: (.*)
+    #     replacement: ${1}
+    #   metric_relabel_configs:
+    #   - regex: (kubernetes_io_hostname|failure_domain_beta_kubernetes_io_region|beta_kubernetes_io_os|beta_kubernetes_io_arch|beta_kubernetes_io_instance_type|failure_domain_beta_kubernetes_io_zone)
+    #     action: labeldrop
+    #
+    ## If scrape config contains a repetitive section, you may want to use a template.
+    ## In the following example, you can see how to define `gce_sd_configs` for multiple zones
+    # additionalScrapeConfigs: |
+    #  - job_name: "node-exporter"
+    #    gce_sd_configs:
+    #    {{range $zone := .Values.gcp_zones}}
+    #    - project: "project1"
+    #      zone: "{{$zone}}"
+    #      port: 9100
+    #    {{end}}
+    #    relabel_configs:
+    #    ...
+
+    additionalAlertManagerConfigs: []
+    # - consul_sd_configs:
+    #   - server: consul.dev.test:8500
+    #     scheme: http
+    #     datacenter: dev
+    #     tag_separator: ','
+    #     services:
+    #       - metrics-prometheus-alertmanager
+
+    ## AdditionalAlertRelabelConfigs allows specifying Prometheus alert relabel configurations. Alert relabel configurations specified are appended
+    ## to the configurations generated by the Prometheus Operator. Alert relabel configurations specified must have the form as specified in the
+    ## official Prometheus documentation: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#alert_relabel_configs.
+    ## As alert relabel configs are appended, the user is responsible to make sure it is valid. Note that using this feature may expose the
+    ## possibility to break upgrades of Prometheus. It is advised to review Prometheus release notes to ensure that no incompatible alert relabel
+    ## configs are going to break Prometheus after the upgrade.
+    ##
+    additionalAlertRelabelConfigs: []
+    # - separator: ;
+    #   regex: prometheus_replica
+    #   replacement: $1
+    #   action: labeldrop

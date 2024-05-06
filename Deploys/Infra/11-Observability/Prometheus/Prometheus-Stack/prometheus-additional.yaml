@@ -1,0 +1,146 @@
+# kubectl create secret generic additional-configs --from-file prometheus-additional.yaml -n prometheus
+# 指定 kubernetes_sd_configs 的模式为node，自动发现所有的 node 节点并作为当前 job 监控的目标实例
+# 发现的节点 /metrics 接口是默认的 kubelet 的 HTTP 接口。
+- job_name: "kubernetes-nodes"
+  kubernetes_sd_configs:
+    - role: node
+  # 将 https 端口： 10250 转换到 http 端口： 9100
+  relabel_configs: # 在抓取目标之前，通过一系列的重写规则，来更改、增加或删除标签的过程。
+    - source_labels: [__address__]
+      regex: "(.*):10250"
+      replacement: "${1}:9100"
+      target_label: __address__
+      action: replace
+    # 添加 Node 节点的 Label 标签
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+      # 对于 kubernetes_sd_configs 下面可用的元信息标签如下：
+      # __meta_kubernetes_node_name：节点对象的名称
+      # _meta_kubernetes_node_label：节点对象中的每个标签
+      # _meta_kubernetes_node_annotation：来自节点对象的每个注释
+      # _meta_kubernetes_node_address：每个节点地址类型的第一个地址（如果存在）
+      # cAdvisor 已内置在了 kubelet 组件之中
+      # https://prometheus.io/docs/prometheus/latest/configuration/configuration/#%3Ckubernetes_sd_config%3E
+
+- job_name: "kubernetes-kubelet"
+  kubernetes_sd_configs:
+    - role: node
+  scheme: https
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    insecure_skip_verify: true
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  relabel_configs:
+    - action: labelmap # labelmap 使用正则表达式匹配标签，并将这些标签映射到监控目标
+      regex: __meta_kubernetes_node_label_(.+)
+    # 从Kubernetes元数据中动态提取标签
+# cAdvisor 数据路径为 /api/v1/nodes/<node>/proxy/metrics
+- job_name: "kubernetes-cadvisor"
+  kubernetes_sd_configs:
+    - role: node
+  scheme: https
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  relabel_configs:
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+    - target_label: __address__
+      replacement: kubernetes.default.svc:443
+    - source_labels: [__meta_kubernetes_node_name] # 作为下面的 ${1}
+      regex: (.+)
+      target_label: __metrics_path__
+      replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+# https://github.com/google/cadvisor/blob/master/docs/storage/prometheus.md
+- job_name: "kubernetes-apiservers"
+  kubernetes_sd_configs:
+    - role: endpoints #自动发现 Service 类型的服务，需要用到 role 为 Endpoints 的 kubernetes_sd_configs
+  scheme: https
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+  relabel_configs:
+    - source_labels: # 保留匹配的 Service
+        [
+          __meta_kubernetes_namespace,
+          __meta_kubernetes_service_name,
+          __meta_kubernetes_endpoint_port_name,
+        ]
+      regex: default;kubernetes;https
+      action: keep
+# 监控 Pod
+- job_name: "kubernetes-endpoints"
+  kubernetes_sd_configs:
+    - role: endpoints
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+      action: keep
+      regex: true
+      # Service 添加 annotation 为 prometheus.io/scrape=true 即可自动发现 Endpoint
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+      action: replace
+      target_label: __scheme__
+      regex: (https?)
+    - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+      action: replace
+      target_label: __metrics_path__
+      regex: (.+)
+    - source_labels:
+        [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+      action: replace
+      target_label: __address__
+      regex: ([^:]+)(?::\d+)?;(\d+)
+      replacement: $1:$2
+      # Service 添加 annotation 为 prometheus.io/port: "9153"  # metrics 接口的端口
+    - action: labelmap
+      regex: __meta_kubernetes_service_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      action: replace
+      target_label: kubernetes_namespace
+    - source_labels: [__meta_kubernetes_service_name]
+      action: replace
+      target_label: kubernetes_name
+    - source_labels: [__meta_kubernetes_pod_name]
+      action: replace
+      target_label: kubernetes_pod_name
+
+    # 自定义 https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
+    - job_name: "kubernetes-service-endpoints"
+      kubernetes_sd_configs:
+        - role: endpoints
+      relabel_configs:
+        - source_labels:
+            [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels:
+            [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+          action: replace
+          target_label: __scheme__
+          regex: (https?)
+        - source_labels:
+            [__meta_kubernetes_service_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels:
+            [
+              __address__,
+              __meta_kubernetes_service_annotation_prometheus_io_port,
+            ]
+          action: replace
+          target_label: __address__
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+        - action: labelmap
+          regex: __meta_kubernetes_service_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_service_name]
+          action: replace
+          target_label: kubernetes_name
+        - source_labels: [__meta_kubernetes_pod_node_name]
+          action: replace
+          target_label: kubernetes_node

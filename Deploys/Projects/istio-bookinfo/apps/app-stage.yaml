@@ -2,8 +2,6 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: bookinfo-stage
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   destination:
     name: ""
@@ -14,7 +12,7 @@ spec:
     repoURL: "git@github.com:SJFCS/DevOpsConfig.git"
     targetRevision: HEAD
     plugin:
-      name: kustomize-build-with-helm
+      name: kustomize-enable-helm
   project: default
   syncPolicy:
     syncOptions:

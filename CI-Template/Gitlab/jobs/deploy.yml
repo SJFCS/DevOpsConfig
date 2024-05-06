@@ -1,0 +1,132 @@
+.deploy:
+  #  variables:
+  #     CI_PROJECT_GIT_URL: https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/devops/deploy-prism.git
+  #     CI_PROJECT_GIT_DIR: deploy-prism/$CI_PROJECT_NAME
+  #    ARGOCD_AUTO: yes  自动部署
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - if [ $CI_ENV == "master" ]; then export CI_ENV="production" ; fi
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone $CI_PROJECT_GIT_URL
+    - cd $CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+
+    - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+      fi
+    # CD_ENV 为当前分构建支名,master分支为空
+    - export CD_ENV="-$CI_COMMIT_BRANCH"
+    - if [ $CD_ENV == "-master" ]; then export CD_ENV=" " ; fi
+    # 自动部署 argocd app sync 项目名-分支
+    # master配置了自动发布也不会生效
+    - |
+      if [ "$ARGOCD_AUTO" = "yes" ]  && [ "$CI_COMMIT_BRANCH" != "master" ];
+      then   echo " ARGOCD_AUTH_TOKEN  $ARGOCD_AUTH_TOKEN 自动部署命令 argocd app sync ${CI_PROJECT_NAME}"$CD_ENV" " && argocd app sync ${CI_PROJECT_NAME}"$CD_ENV";
+      else    
+        echo "当前项目-分支为${CI_PROJECT_NAME}-"$CI_COMMIT_BRANCH",请手动部署ARGOCD";
+      fi
+    - |
+      echo " argocd==> https://cd.xx.cn/applications/${CI_PROJECT_NAME}"$CD_ENV" "
+
+      echo " image-name==> $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA "
+
+      echo  "  argocd-yaml==>
+      apiVersion: argoproj.io/v1alpha1
+      kind: Application
+      metadata:
+        name: '$CI_PROJECT_NAME'
+      spec:
+        project: $ARGOCD_PROJECT
+        source:
+          repoURL: '$CI_PROJECT_GIT_URL'
+          path: '$CI_PROJECT_NAME/overlays/$CI_ENV'
+          targetRevision: HEAD
+        destination:
+          server: '$ARGOCD_SERVER'
+          namespace: $ARGOCD_NAMESPACE
+      "
+  retry:
+    max: 2
+    when:
+      - script_failure
+
+.deploy-aws:
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - if [ $CI_ENV == "master" ]; then export CI_ENV="production" ; fi
+    - if [ $CI_ENV == dev-branch-01 ]; then export CI_ENV="aws-dev-01" ; fi
+    - if [ $CI_ENV == test-branch-01 ]; then export CI_ENV="aws-test-01" ; fi
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone $CI_PROJECT_GIT_URL
+    - cd $CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+
+    - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE_aws:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+      fi
+    # CD_ENV 为当前分构建支名,master分支为空
+    - export CD_ENV="-$CI_COMMIT_BRANCH"
+    - if [ $CD_ENV == "-master" ]; then export CD_ENV=" " ; fi
+    # 自动部署 argocd app sync 项目名-分支
+    # master配置了自动发布也不会生效
+    - |
+      if [ "$ARGOCD_AUTO" = "yes" ]  && [ "$CI_COMMIT_BRANCH" != "master" ];
+      then   echo " ARGOCD_AUTH_TOKEN  $ARGOCD_AUTH_TOKEN 自动部署命令 argocd app sync ${CI_PROJECT_NAME}"$CD_ENV" " && argocd app sync ${CI_PROJECT_NAME}"$CD_ENV";
+      else    
+        echo "当前项目-分支为${CI_PROJECT_NAME}-"$CI_COMMIT_BRANCH",请手动部署ARGOCD";
+      fi
+  retry:
+    max: 2
+    when:
+      - script_failure
+
+.deploy-h5-test:
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjOGVlODNjZC1iYWM2LTQzMjgtOWQxYS1lYzVhZTdmOTgwZjMiLCJpYXQiOjE2MzU4NDc4NDgsImlzcyI6ImFyZ29jZCIsIm5iZiI6MTYzNTg0Nzg0OCwic3ViIjoicHJvajp3ZWJzaXRlOmdpdGxhYi1jaSJ9.B2wKwCGfuxHj4gg3EYKmk_Py8MHvyx4i2g25CAcAOl4
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - export CI_ENV=$CI_COMMIT_BRANCH
+    - if [ $CI_ENV == "master" ]; then export CI_ENV="production" ; fi
+    - CI_ENV=$(echo $CI_COMMIT_BRANCH | sed 's/-branch-/-/')
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone $CI_PROJECT_GIT_URL
+    - cd $CI_PROJECT_GIT_DIR/overlays/$CI_ENV
+
+    - kustomize edit set image $CURRENT_IMAGE=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git push origin master || (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master)|| (git pull --rebase && git push origin master);
+      fi
+    - argocd app sync ${CI_PROJECT_NAME}"-$CI_ENV"
+    - argocd app wait ${CI_PROJECT_NAME}"-$CI_ENV" --health --timeout 150
+  # # CD_ENV 为当前分构建支名,master分支为空
+  #     - export CD_ENV="-$CI_COMMIT_BRANCH"
+  #     - if [ $CD_ENV == "-master" ]; then export CD_ENV=" " ; fi
+  # # 自动部署 argocd app sync 项目名-分支
+  # # master配置了自动发布也不会生效
+  #     - |
+  #       if [ "$ARGOCD_AUTO" = "yes" ]  && [ "$CI_COMMIT_BRANCH" != "master" ];
+  #       then   echo " ARGOCD_AUTH_TOKEN  $ARGOCD_AUTH_TOKEN 自动部署命令 argocd app sync ${CI_PROJECT_NAME}"$CD_ENV" " && argocd app sync ${CI_PROJECT_NAME}"$CD_ENV";
+  #       else
+  #         echo "当前项目-分支为${CI_PROJECT_NAME}-"$CI_COMMIT_BRANCH",请手动部署ARGOCD";
+  #       fi
+  retry:
+    max: 2
+    when:
+      - script_failure

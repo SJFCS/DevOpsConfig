@@ -1,0 +1,29 @@
+image:
+  repository: oliver006/redis_exporter
+  tag: "v1.36.0"
+
+podAnnotations:
+  prometheus.io/path: /metrics
+  prometheus.io/port: "9121"
+  prometheus.io/scrape: "true"
+
+extraEnvs:
+  - name: REDIS_ADDR
+    value: "redis://redis-master:6379"
+  - name: REDIS_PASSWORD
+    value: "redisPass66"
+
+container:
+  name: redis-exporter
+  httpPort: 9121
+service:
+  enabled: true
+  port: 80
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 5m
+    memory: 64Mi

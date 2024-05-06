@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: prometheus-alert-center
+    alertname: prometheus-alert-center
+  name: prometheus-alert-center
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-alert-center
+      alertname: prometheus-alert-center
+  template:
+    metadata:
+      labels:
+        app: prometheus-alert-center
+        alertname: prometheus-alert-center
+    spec:
+      containers:
+        - image: feiyu563/prometheus-alert
+          name: prometheus-alert-center
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          volumeMounts:
+            - name: prometheus-alert-center-conf-map
+              mountPath: /app/conf/app.conf
+              subPath: app.conf
+            - name: prometheus-alert-center-conf-map
+              mountPath: /app/user.csv
+              subPath: user.csv
+            # 非高可用，持久化保存sqlite
+            - name: data
+              mountPath: /app/db
+              subPath: db
+      volumes:
+        - name: prometheus-alert-center-conf-map
+          configMap:
+            name: prometheus-alert-center-conf
+            items:
+              - key: app.conf
+                path: app.conf
+              - key: user.csv
+                path: user.csv
+        - name: data
+          persistentVolumeClaim:
+            claimName: prom-alert-center-db

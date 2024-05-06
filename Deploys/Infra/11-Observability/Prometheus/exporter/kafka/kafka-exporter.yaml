@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+spec:
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9308"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+      - name: kafka-exporter
+        imagePullPolicy: IfNotPresent
+        image: danielqsj/kafka-exporter
+        command:
+          - /bin/kafka_exporter
+          - --kafka.server=kafka01-vpc.myrightone.com:9093
+          #- --kafka.server=kafka01-vpc.dev.myrightone.com:9095
+          #- --kafka.server=kafka01-vpc.test.myrightone.com:9096
+        ports:
+        - name: http-metrics
+          containerPort: 9308
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+spec:
+  ports:
+  - name: http-metrics
+    port: 80
+    protocol: TCP
+    targetPort: 9308

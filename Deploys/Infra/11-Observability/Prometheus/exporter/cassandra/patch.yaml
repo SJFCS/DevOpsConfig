@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cassandra-exporter
+spec:
+  template:
+    spec:
+      containers:
+      - name: cassandra-exporter
+        env:
+        - name: CASSANDRA_EXPORTER_CONFIG_host
+          value: "cass-prod-cassandra:9042"
+        - name: CASSANDRA_EXPORTER_CONFIG_user
+          value: "data_reader"
+        - name: CASSANDRA_EXPORTER_CONFIG_password
+          value: "MfBG8SIC_A0"

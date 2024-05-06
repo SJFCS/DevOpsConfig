@@ -1,0 +1,182 @@
+variables:
+  CI_REGISTRY: registry-vpc.cn-hangzhou.aliyuncs.com
+  CI_REGISTRY_USER: webmaster@xx.cn
+  # CI_REGISTRY_PASSWORD: Set in GitLab Project > Settings > CI/CD > Variables
+  CI_REGISTRY_IMAGE: registry-vpc.cn-hangzhou.aliyuncs.com/cp-right/$CI_PROJECT_NAME
+
+stages:
+  - build-image-and-run-tests
+  - deploy
+  - deploy-to-sandbox
+  - deploy-wcp-match
+  - rsync
+  - autoscript
+
+build-init-container-image:
+  stage: build-image-and-run-tests
+  image:
+    name: registry-vpc.cn-hangzhou.aliyuncs.com/xx/executor:debug
+    entrypoint: [""]
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+  only:
+    refs:
+      - master
+      - pre
+      - wcp-pre
+
+run_tests_on_pre_05:
+  stage: build-image-and-run-tests
+  image:
+    name: registry.cn-hangzhou.aliyuncs.com/cp-right/right:ssh-client-v2
+  script:
+    - ssh -q -i /scaling-node ssh-cli-user@ci.xx.cn -p 50022 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no build xx-backend -s -v -p branch_name=$CI_COMMIT_REF_NAME -p build_cmd=update_code_and_config -p env=pre -p label=pre-05 -p run_tests=yes >> run_test_result.log 2>&1 || echo 'hello'
+    - cat run_test_result.log
+    - run_test_result=`tail -n 1 run_test_result.log | awk '{print$NF}'`
+    - echo $run_test_result
+    - if [[ $run_test_result == "SUCCESS" ]];then
+      curl "https://www.cp-pre.xx.cn/api/util/pre-test-helper?action=on_run_success&branch_name=$CI_COMMIT_REF_NAME&remote_hash=$CI_COMMIT_SHA";
+      fi
+  allow_failure: true
+  only:
+    refs:
+      - master
+      - pre
+
+deploy:
+  stage: deploy
+  image: registry-vpc.cn-hangzhou.aliyuncs.com/xx/alpine:3.6-deploy
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_PROD_RIGHT_JWT
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/xx/cp-deploy-config.git
+    - if [ $CI_COMMIT_REF_NAME == "master" ]; then
+      cd cp-deploy-config/right/overlays/cp-prod;
+      elif [ $CI_COMMIT_REF_NAME == "pre" ]; then
+      cd cp-deploy-config/right/overlays/cp-pre;
+      else
+      cd cp-deploy-config/right/overlays/$CI_COMMIT_REF_NAME;
+      fi
+    - kustomize edit set image $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git pull --rebase;
+      git push origin master;
+      fi
+  retry:
+    max: 2
+    when:
+      - script_failure
+  only:
+    refs:
+      - master
+      - pre
+      - wcp-pre
+
+deploy-wcp-match:
+  stage: deploy-wcp-match
+  image: registry-vpc.cn-hangzhou.aliyuncs.com/xx/alpine:3.6-deploy
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_PROD_RIGHT_JWT
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/xx/cp-deploy-config.git
+    - cd cp-deploy-config/right/overlays/wcp-match
+    - kustomize edit set image $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git pull --rebase;
+      git push origin master;
+      fi
+  retry:
+    max: 2
+    when:
+      - script_failure
+  only:
+    refs:
+      - master
+
+deploy-to-sandbox:
+  stage: deploy-to-sandbox
+  image: registry-vpc.cn-hangzhou.aliyuncs.com/xx/alpine:3.6-deploy
+  variables:
+    ARGOCD_SERVER: cd.xx.cn
+    ARGOCD_AUTH_TOKEN: $ARGOCD_PROD_RIGHT_JWT
+  before_script:
+    - git config --global user.email "gitlab@gitlab.com"
+    - git config --global user.name "GitLab CI/CD"
+    - git config --global http.sslVerify false
+  script:
+    - COMMIT_MSG=$(git log -1 --pretty=format:'%an, %s')
+    - git clone https://${CI_USERNAME}:${CI_PUSH_TOKEN}@git.xx.cn/xx/cp-deploy-config.git
+    - cd cp-deploy-config/right/overlays-sandbox/cp-$CI_COMMIT_REF_NAME
+    - kustomize edit set image $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA
+    - if [ -n "$(git status -s)" ];then
+      git commit -am "$COMMIT_MSG";
+      git pull --rebase;
+      git push origin master;
+      argocd app sync cp-$CI_COMMIT_REF_NAME;
+      fi
+  retry:
+    max: 2
+    when:
+      - script_failure
+  only:
+    refs:
+
+rsync_manual:
+  stage: rsync
+  image:
+    name: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/alpine:3.12-deploy-v2
+    entrypoint: [""]
+  script:
+    - apk add openssh
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY_SANDBOX" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY_SANDBOX" >> ~/.ssh/id_rsa
+    - echo "$SSH_PUB_KEY_SANDBOX" >> ~/.ssh/id_rsa.pub
+    - chmod 700 ~/.ssh
+    - chmod 644 ~/.ssh/known_hosts
+    - chmod 600 ~/.ssh/id_rsa
+    - chmod 644 ~/.ssh/id_rsa.pub
+    - ls -al ~/.ssh
+    - ssh jenkins@10.0.3.10 "cd /opt/src/jenkins/workspace/xx-backend;git checkout . ; git checkout sandbox ; git pull  ; docker restart test-jenkins-cp-sandbox-316-php"
+  only:
+    refs:
+      - sandbox
+  when: manual
+
+autoscript:
+  stage: autoscript
+  image:
+    name: docker-registry-registry-vpc.cn-hangzhou.cr.aliyuncs.com/mirror/kubectl-prod:v2
+    entrypoint: [""]
+  script:
+    - cat autoscript.config
+    - NS=`cat autoscript.config|jq .NS -r`
+    - Label=`cat autoscript.config|jq .Label -r`
+    - Container=`cat autoscript.config|jq .Container -r`
+    - CMD=`cat autoscript.config|jq .CMD -r`
+    - RootDir=`cat autoscript.config|jq .RootDir -r`
+    - echo $NS $Label $CMD
+    - echo "执行 kubectl --kubeconfig /config -n $NS  exec -it $(kubectl --kubeconfig /config -n $NS get pod -l $Label -o jsonpath='{.items[0].metadata.name}' ) -c $Container -- $CMD"
+    - kubectl --kubeconfig /config -n $NS  exec -it $(kubectl --kubeconfig /config -n $NS get pod -l $Label -o jsonpath='{.items[0].metadata.name}' ) -c $Container -- $CMD
+  only:
+    refs:
+      - pre
+  when: manual

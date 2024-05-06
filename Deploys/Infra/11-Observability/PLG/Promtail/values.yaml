@@ -1,0 +1,56 @@
+## values-promtail.yaml
+
+image:
+  tag: 2.9.6
+
+#resources:
+#  limits:
+#    cpu: 2
+#    memory: 2Gi
+#  requests:
+#    cpu: 100m
+#    memory: 512Mi
+
+config:
+  clients:
+    - url: http://loki-gateway/loki/api/v1/push
+  snippets:
+    extraLimitsConfig: |
+      max_line_size: 256kb
+      max_line_size_truncate: true
+      readline_rate_enabled: true
+      readline_rate: 110000    # default = 10000
+      readline_burst: 810000    # default = 10000
+    pipelineStages:
+      - cri: {}
+      # - match:
+      #     ## 过滤某些 namespace
+      #     selector: '{namespace=~"Your_Namespace"}'
+      #     action: drop
+      # - match:
+      #     ## 过滤某些 container
+      #     selector: '{container=~"Your_Container_Name"}'
+      #     action: drop
+      - json:
+          expressions:
+            log: log
+      - output:
+          source: log
+      - multiline:
+          ## 跨行合并
+          firstline: '^\S'
+          max_wait_time: 3s
+          max_lines: 2000
+      #- match:
+      #    ## 匹配标签的日志将进行额外管道处理
+      #    selector: '{container=~"java.*"}'
+      #    stages:
+      #    - multiline:
+      #        firstline: '^[A-Z]{3,9} +\['
+      #        max_wait_time: 3s
+      #        max_lines: 2000
+      #    - regex:
+      #        expression: '^(?P<level>[A-Z]{3,9}) +\[.*'
+      #        #source: log
+      #    - labels:
+      #        level:
